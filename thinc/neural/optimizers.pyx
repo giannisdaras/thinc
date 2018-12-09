@@ -164,7 +164,7 @@ class Optimizer(object):
 
 class NoAmOpt(Optimizer):
   ''' Reference: https://arxiv.org/abs/1706.03762 '''
-    def __init__(self, *args, **kargs, warmup=400, factor=1, input_size):
+    def __init__(self, *args, **kargs, warmup=400, factor=1):
       super(NoAmOpt, self).__init__(*args, **kargs)
       self.step = 0
       self.warmup = warmup
