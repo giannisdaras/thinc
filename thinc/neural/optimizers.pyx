@@ -37,9 +37,9 @@ def SGD(*args, **kwargs):
 class Optimizer(object):
     '''Do various flavours of stochastic gradient descent, with first and
     second order momentum.
-    
+
     Examples
-    
+
     * beta1=0., beta2=0.: "vanilla" SGD
     * beta1=0.9, beta2=0.: "Classic momentum"
     * beta1=0.0, beta2=0.2: RMS prop
@@ -74,7 +74,7 @@ class Optimizer(object):
         for params in (self.mom1, self.mom2, self.averages):
             for key, value in params.items():
                 params[key] = self.ops.xp.asarray(value, dtype=value.dtype)
-    
+
     def to_cpu(self):
         self.ops = NumpyOps()
         for params in (self.mom1, self.mom2, self.averages):
@@ -159,4 +159,21 @@ class Optimizer(object):
             weights, gradient, mom1, mom2, b1, b2, eps, lr * lr_scale)
         gradient.fill(0)
 
+class NoAmOpt(Optimizer):
+    def __init__(self, warmup=400, factor=1, input_size):
+      super(NoAmOpt, self).__init__()
+      self.step = 0
+      self.warmup = warmup
+      self.factor = factor
+      self.input_size = input_size
 
+    def __call__(self, weights, gradient, lr_scale=1, key=None):
+      ''' Update learning rate based on rate formula '''
+      super(NoAmOpt, self).__call__(weights, gradient, lr_scale, key)
+      self.alpha = self.rate()
+      self.step += 1
+
+    def rate(self):
+      return self.factor * \
+          (self.input_size ** (-0.5) *
+           min(self.step ** (-0.5), self.step * self.warmup ** (-1.5)))
