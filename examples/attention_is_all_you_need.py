@@ -1,6 +1,7 @@
 from thinc.neural.ops import NumpyOps, CupyOps, Ops
 from thinc.neural.optimizers import initNoAm
 from thinc.v2v import Model
+import numpy as np
 import plac
 import spacy
 from thinc.extra.datasets import get_iwslt
@@ -29,9 +30,8 @@ def main(heads=6, dropout=0.1):
     test_X, test_Y = zip(*test)
     tokenizer = lambda x: spacy.load('en_core_web_sm').tokenizer(x)
     vectorizer = spacy.load('en_vectors_web_lg')
-    raise BatchesException('Batchify not implemented yet.')
     raise ModelException('Model not composed yet.')
-    with model.begin_training(train_X, train_Y, optimizer=initNoAm(input_size)) \
+    with model.begin_training(train_X, train_Y, optimizer=initNoAm(model.nI)) \
             as (trainer, optimizer):
             raise NotImplementedError
 
