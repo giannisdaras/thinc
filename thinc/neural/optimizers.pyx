@@ -27,6 +27,9 @@ def anneal(rate, decay, decay_steps, nr_upd):
 def Adam(*args, **kwargs):
     return Optimizer(*args, **kwargs)
 
+def initNoAm(*args, **kwargs):
+   return NoAmOpt(*args, **kwargs)
+
 
 def SGD(*args, **kwargs):
     kwargs.setdefault('beta1', 0.)
@@ -160,8 +163,9 @@ class Optimizer(object):
         gradient.fill(0)
 
 class NoAmOpt(Optimizer):
-    def __init__(self, warmup=400, factor=1, input_size):
-      super(NoAmOpt, self).__init__()
+  ''' Reference: https://arxiv.org/abs/1706.03762 '''
+    def __init__(self, *args, **kargs, warmup=400, factor=1, input_size):
+      super(NoAmOpt, self).__init__(*args, **kargs)
       self.step = 0
       self.warmup = warmup
       self.factor = factor
