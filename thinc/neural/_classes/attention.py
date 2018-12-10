@@ -4,7 +4,6 @@ from ... import describe
 from ...describe import Dimension, Synapses, Gradient
 from .model import Model
 from ..util import get_array_module
-from ..ops import softmax
 
 def _set_dimensions_if_needed(model, X, y=None):
     if model.nI is None:
@@ -55,7 +54,7 @@ def attn(query, key, value, mask=None):
     # TODO: fix this!
     # this could be done much faster if softmax was supported for >= 3d arrays
     for batch in torch.arange(nB):
-        scores[batch, :, :] = softmax(scores[batch, :, :])
+        scores[batch, :, :] = self.ops.softmax(scores[batch, :, :])
     ''' Now the dimensions of scores are:
     nB x nT x nT
     We multiply by values which is nB x nT x nK, so the result is:
