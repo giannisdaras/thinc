@@ -33,7 +33,10 @@ def main(heads=6, dropout=0.1):
     raise ModelException('Model not composed yet.')
     with model.begin_training(train_X, train_Y, optimizer=initNoAm(model.nI)) \
             as (trainer, optimizer):
-            raise NotImplementedError
+            trainer.each_epoch(append(lambda: print(model.evaluate(dev_X, dev_Y))))
+            with X, y in trainer.iterate(train_X, train_Y):
+                yh, backprop = model.begin_update(X, drop=trainer.dropout)
+
 
 
 
