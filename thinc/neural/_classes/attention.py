@@ -4,6 +4,69 @@ from ... import describe
 from ...describe import Dimension, Synapses, Gradient
 from .model import Model
 from ..util import get_array_module
+from ..ops import softmax
+
+def _set_dimensions_if_needed(model, X, y=None):
+    if model.nI is None:
+        model.nI = X.shape[1]
+    if model.nO is None and y is not None:
+        if len(y.shape) == 2:
+            model.nO = y.shape[1]
+        else:
+            model.nO = int(y.max()) + 1
+
+@describe.attributes(
+    nI=Dimension("Input width"),
+    heads=Dimension("Number of heads for the multiheaded attention"),
+    W=Synapses("Input weights",
+        lambda obj: (obj.nK+obj.nK+obj.nO, obj.nI),
+        lambda W, ops: ops.xavier_uniform_init(W)),
+    d_W=Gradient("W"),
+)
+class MultiHeadedAttention(Model):
+    ''' This class implements multiheaded attention. It can be used for self
+    attention or outer attention, depending on our needs. There is no left
+    and right context width. We attend to the whole sentence and we take
+    care of the masks to adjust appropriately. There are no actual different
+    weight matrices for each head, but a bigger weight matrix for all heads.
+    Going to bigger dimensions is the key to get the multiple heads.
+    For the time being; key, query and value matrices are supposed to have the
+    same length.
+    '''
+    def __init__(self, heads=6, nI=None, **kwargs):
+        super(MultiHeadedAttention, self).__init__(self, **kwargs)
+        self.heads = heads
+        self.nI = nI
+        self.nK = nI // heads
+
+
+def attn(query, key, value, mask=None):
+    ''' Compute attention based on query, key, value
+    Expected data size: nB x nT x nK
+    '''
+    nB = query.shape[0]
+    # number of tokens in each sentence
+    nT = query.shape[1]
+    # key length
+    nK = query.shape[2]
+    scores = self.ops.matmul(query, key.transpose(0, 2, 1)) / math.sqrt(self.nI)
+    # penalize masked tokens
+    scores[self.ops.where(mask == 0)] = 1e-9
+    # TODO: fix this!
+    # this could be done much faster if softmax was supported for >= 3d arrays
+    for batch in torch.arange(nB):
+        scores[batch, :, :] = softmax(scores[batch, :, :])
+    ''' Now the dimensions of scores are:
+    nB x nT x nT
+    We multiply by values which is nB x nT x nK, so the result is:
+    nB x nT x nK
+    '''
+    real_scores = self.ops.matmul(scores, value)
+
+
+
+
+
 
 
 @describe.attributes(
@@ -28,7 +91,7 @@ class SelfAttention(Model):
 
     def begin_update(self, X_lengths, drop=0.):
         X, lengths = X_lengths
-        
+
         (queries, keys, values), get_dX = self.project_inputs(X, lengths)
         attention, backprop_compare = self.compare(queries, keys, lengths)
         output, backprop_rescale = self.rescale(values, attention, lengths,
@@ -59,14 +122,14 @@ class SelfAttention(Model):
             # ab,cb->ac
             dX = self.ops.gemm(dY, self.W)
             # ac,ab->cb
-            self.ops.gemm(dY, X, out=self.d_W, trans1=True) 
+            self.ops.gemm(dY, X, out=self.d_W, trans1=True)
             return dX
 
         return (queries, keys, values), backprop_get_inputs
 
     def compare(self, queries, keys, lengths):
         '''Compare queries and keys according to scaled dot product attention.
-        
+
         Queries and keys should be equally-shaped ragged arrays, representing
         variable length sequences. Typically each row will represent a word.
 
@@ -89,7 +152,7 @@ class SelfAttention(Model):
 
     def rescale(self, V, A, lengths, nL, nR):
         '''Perform a weighted sum of values with the attention.
-        
+
         Values is a ragged array of sequences, unpacked it would be
         [(N1, d), (N2, d), ...etc], where N1 is the length of sequence 1,
         N2 is the length of sequence 2, etc.
@@ -131,7 +194,7 @@ class SelfAttention(Model):
                     #values    = V_[max(0, j-nL) : j+nR+1]
                     values = get_window(V_, j, nL, nR)
                     attention = A[att_idx : att_idx + values.shape[0]]
-                    
+
                     #dV_[max(0, j-nL) : j+nR+1] += self.ops.xp.outer(attention, d_out_word)
                     inc_window(dV_, j, nL, nR, self.ops.xp.outer(attention, d_out_word))
                     dA[att_idx : att_idx + values.shape[0]] += (values * d_out_word).sum(axis=-1)
@@ -142,16 +205,12 @@ class SelfAttention(Model):
         return output, backprop_rescale
 
 def get_window(X, i, nL, nR):
-    # TODO: This is wrong; we're including the dot-product of the word
-    # against itself.
     xp = get_array_module(X)
     lefts = X[max(i-nL, 0) : i]
     rights = X[i : i+nR+1]
     return xp.vstack((lefts, rights))
 
 def inc_window(X, i, nL, nR, Y):
-    # TODO: This is wrong; we're including the dot-product of the word
-    # against itself.
     left_start = max(i-nL, 0)
     right_end = i+nR+1
     X[left_start : i] += Y[:i-left_start]
@@ -174,7 +233,7 @@ def backprop_softmax_ragged(ops, dY, Y, lengths):
         dX[start : start+length] -= Y[start : start+length] * sumdx
         start += length
     return dX
-    
+
 
 def _ragged_window_dot(ops, X, Y, lengths, nL, nR):
     '''Multiply X against context windows of Y, where X and Y are both ragged
@@ -186,15 +245,15 @@ def _ragged_window_dot(ops, X, Y, lengths, nL, nR):
     # output = einsum('nd,nd->nn', X, Y)
     # dX     = einsum('nn,nd->nd', d_output, Y)
     # dY     = einsum('nn,nd->nd', d_output, X)
-    # 
+    #
     # Okay. Now let's say we expand and pad, wrapping that in an op:
-    # 
+    #
     # winY, backprop_window = window(Y, window_size)
-    # 
+    #
     # where winY is of shape (n, w, d) for w = window_size*2+1
     #
     # Then:
-    # 
+    #
     # output = einsum('nd,nwd->nw', X, winY)
     # dX     = einsum('nw,nwd->nd', d_output, win_Y)
     # d_winY = einsum('nw,nd->nwd', d_output, X)
@@ -227,8 +286,6 @@ def _ragged_window_dot(ops, X, Y, lengths, nL, nR):
 
 
 def _window_dot(X, Y, i, nL, nR):
-    # TODO: This is wrong; we're including the dot-product of the word
-    # against itself.
     start = max(0, i-nL)
     end = i + nR + 1
     output = einsum('d,wd->w', X[i], Y[start : end])
