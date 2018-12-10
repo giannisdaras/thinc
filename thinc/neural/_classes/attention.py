@@ -5,6 +5,7 @@ from ...describe import Dimension, Synapses, Gradient
 from .model import Model
 from ..util import get_array_module
 
+
 def _set_dimensions_if_needed(model, X, y=None):
     if model.nI is None:
         model.nI = X.shape[1]
@@ -39,28 +40,29 @@ class MultiHeadedAttention(Model):
         self.nK = nI // heads
 
 
-def attn(query, key, value, mask=None):
-    ''' Compute attention based on query, key, value
-    Expected data size: nB x nT x nK
-    '''
-    nB = query.shape[0]
-    # number of tokens in each sentence
-    nT = query.shape[1]
-    # key length
-    nK = query.shape[2]
-    scores = self.ops.matmul(query, key.transpose(0, 2, 1)) / math.sqrt(self.nI)
-    # penalize masked tokens
-    scores[self.ops.where(mask == 0)] = 1e-9
-    # TODO: fix this!
-    # this could be done much faster if softmax was supported for >= 3d arrays
-    for batch in torch.arange(nB):
-        scores[batch, :, :] = self.ops.softmax(scores[batch, :, :])
-    ''' Now the dimensions of scores are:
-    nB x nT x nT
-    We multiply by values which is nB x nT x nK, so the result is:
-    nB x nT x nK
-    '''
-    real_scores = self.ops.matmul(scores, value)
+    def attn(self, query, key, value, mask=None):
+        ''' Compute attention based on query, key, value
+        Expected data size: nB x nT x nK
+        '''
+        nB = query.shape[0]
+        # number of tokens in each sentence
+        nT = query.shape[1]
+        # key length
+        nK = query.shape[2]
+        scores = self.ops.xp.matmul(query, key.transpose(0, 2, 1)) / math.sqrt(self.nI)
+        # penalize masked tokens
+        scores[self.ops.xp.where(mask == 0)] = 1e-9
+        # TODO: fix this!
+        # this could be done much faster if softmax was supported for >= 3d arrays
+        for batch in range(nB):
+            scores[batch, :, :] = self.ops.softmax(scores[batch, :, :])
+        ''' Now the dimensions of scores are:
+        nB x nT x nT
+        We multiply by values which is nB x nT x nK, so the result is:
+        nB x nT x nK
+        '''
+        real_scores = self.ops.xp.matmul(scores, value)
+        return real_scores
 
 
 
