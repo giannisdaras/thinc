@@ -155,3 +155,15 @@ def minibatch(stream, batch_size=1000): # pragma: no cover
                 batch = []
         if len(batch) != 0:
             yield batch
+
+
+def numericalize(nlp):
+    ''' Numericalize vocabulary in a continuous range '''
+    word2indx = {}
+    indx2word = {}
+    for indx, word in enumerate(nlp.vocab):
+        word2indx[word] = indx
+        indx2word[indx] = word
+    word2indx['oov'] = len(nlp.vocab)
+    indx2word[len(nlp.vocab)] = 'oov'
+    return word2indx, indx2word
