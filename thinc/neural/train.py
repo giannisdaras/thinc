@@ -48,7 +48,7 @@ class Trainer(object):
             for func in self.each_epoch:
                 func()
 
-    def batch_mask(self, train_X, train_y, progress_bar=True):
+    def batch_mask(self, train_X, train_y, progress_bar=True, pad_token=0):
         for i in range(self.nb_epoch):
             indices = self.ops.xp.arange(len(train_X))
             self.ops.xp.random.shuffle(indices)
@@ -60,19 +60,21 @@ class Trainer(object):
                 y = _take_slice(train_y, slice_)
                 j += self.batch_size
                 max_sent_in_batch = 0
-                for i, j in zip(X,y):
+                for i, j in zip(X, y):
                     curr_len = max(len(i), len(j))
                     if (curr_len > max_sent_in_batch):
                         max_sent_in_batch = curr_len
-                X_pad = self.ops.xp.zeros(max_sent_in_batch)
-                y_pad = self.ops.xp.zeros(max_sent_in_batch)
+                X_pad = self.ops.xp.zeros([self.batch_size, max_sent_in_batch])
+                y_pad = self.ops.xp.zeros([self.batch_size, max_sent_in_batch])
+                sent = 0
                 for x_curr, y_curr in zip(X, y):
                     x_pad_size = max_sent_in_batch - len(x_curr)
                     y_pad_size = max_sent_in_batch - len(y_curr)
-                    X_pad[-x_pad_size] = 1
-                    y_pad[-y_pad_size] = 1
-                    x_curr.extend(self.ops.xp.ones(x_pad_size))
-                    y_curr.extend(self.ops.xp.ones(y_pad_size))
+                    X_pad[sent][-x_pad_size:] = 1
+                    y_pad[sent][-y_pad_size:] = 1
+                    x_curr.extend(['<pad>' for i in range(x_pad_size)])
+                    y_curr.extend(['<pad>' for i in range(y_pad_size)])
+                    sent += 1
                 yield X, y, X_pad, y_pad
                 if progress_bar:
                     pbar.update(self.batch_size)
