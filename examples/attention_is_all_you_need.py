@@ -32,16 +32,17 @@ def main(heads=6, dropout=0.1):
     test_X, test_Y = zip(*test)
     nlp = spacy.load('en_core_web_sm')
     tokenizer = English().Defaults.create_tokenizer(nlp)
-    train_X = [doc.text.split(' ') for doc in tokenizer.pipe(train_X[:2])]
-    train_Y = [doc.text.split(' ') for doc in tokenizer.pipe(train_Y[:2])]
+    train_X = [doc.text.split(' ') for doc in tokenizer.pipe(train_X[:20])]
+    train_Y = [doc.text.split(' ') for doc in tokenizer.pipe(train_Y[:20])]
 
 
     ''' Mark Y sentences '''
     train_Y = add_eos_bos(train_Y)
     model = LinearModel(2)
-    with model.begin_training(train_X, train_Y, nb_epoch=1) as (trainer, optimizer):
+    with model.begin_training(train_X, train_Y, batch_size=2, nb_epoch=1) as (trainer, optimizer):
         for X, y, X_mask, y_mask in trainer.batch_mask(train_X, train_Y):
-            print(X, y, X_mask, y_mask)
+            pass
+            # next step vectorizer
 
 
 
