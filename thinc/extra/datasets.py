@@ -305,8 +305,8 @@ def get_iwslt(path='en-de', exts=('.en', '.de')):
             src_test = f.readlines()
         with open(test_trg_path, 'rb') as f:
             trg_test = f.readlines()
-        X_test.extend([x.strip() for x in src_test])
-        Y_test.extend([x.strip() for x in trg_test])
+        X_test.extend([x.strip().decode('utf-8') for x in src_test])
+        Y_test.extend([x.strip().decode('utf-8') for x in trg_test])
 
     ''' dev data '''
     dev_src_path = os.path.join(path, 'IWSLT16.TED.dev2010.{}-{}.{}'
@@ -317,8 +317,8 @@ def get_iwslt(path='en-de', exts=('.en', '.de')):
         src_dev = f.readlines()
     with open(dev_trg_path, 'rb') as f:
         trg_dev = f.readlines()
-    X_dev = [x.strip() for x in src_dev]
-    Y_dev = [x.strip() for x in trg_dev]
+    X_dev = [x.strip().decode('utf-8') for x in src_dev]
+    Y_dev = [x.strip().decode('utf-8') for x in trg_dev]
 
     ''' train data '''
     train_src_path = os.path.join(path, 'train.{}-{}.{}'.format(src, trg, src))
@@ -327,8 +327,8 @@ def get_iwslt(path='en-de', exts=('.en', '.de')):
         src_train = f.readlines()
     with open(train_trg_path, 'rb') as f:
         trg_train = f.readlines()
-    X_train = [x.strip() for x in src_train]
-    Y_train = [x.strip() for x in trg_train]
+    X_train = [x.strip().decode('utf-8') for x in src_train]
+    Y_train = [x.strip().decode('utf-8') for x in trg_train]
     return list(zip(X_train, Y_train)), \
         list(zip(X_dev, Y_dev)), \
         list(zip(X_test, Y_test)),
