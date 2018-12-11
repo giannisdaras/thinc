@@ -169,4 +169,5 @@ def numericalize_vocab(nlp):
     return word2indx, indx2word
 
 def numericalize(X, word2indx):
+    ''' Get numerical input out of list of tokens '''
     return [word2indx[x] for x in X]
