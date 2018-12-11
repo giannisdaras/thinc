@@ -84,7 +84,7 @@ def add_eos_bos(sentences):
     for sentence in sentences:
         sentence.insert(0, '<eos>')
         sentence.append('<bos>')
-
+    return sentences
 
 def remap_ids(ops):
     id_map = {0: 0}
