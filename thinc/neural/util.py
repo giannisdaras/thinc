@@ -82,8 +82,8 @@ def mark_sentence_boundaries(sequences, drop=0.): # pragma: no cover
 def add_eos_bos(sentences):
     '''Add eos and bos tokens to a batch of sentences'''
     for sentence in sentences:
-        sentence.insert(0, '<eos>')
-        sentence.append('<bos>')
+        sentence.insert(0, '<bos>')
+        sentence.append('<eos>')
     return sentences
 
 def remap_ids(ops):
