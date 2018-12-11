@@ -31,7 +31,7 @@ def is_cupy_array(arr):
         return True
     else:
         return False
-    
+
 def is_numpy_array(arr):
     '''Check whether an array is a numpy array'''
     if isinstance(arr, numpy.ndarray):
@@ -77,6 +77,13 @@ def mark_sentence_boundaries(sequences, drop=0.): # pragma: no cover
         sequence.append('-EOL-')
         sequence.append('-EOL-')
     return sequences, None
+
+
+def add_eos_bos(sentences):
+    '''Add eos and bos tokens to a batch of sentences'''
+    for sentence in sentences:
+        sentence.insert(0, '<eos>')
+        sentence.append('<bos>')
 
 
 def remap_ids(ops):
