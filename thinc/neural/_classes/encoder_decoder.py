@@ -42,3 +42,18 @@ class Encoder:
             X, layer_backprop = layer(X, X_mask)
             backprops.append(layer_backprop)
         return X, backprops
+
+
+class Decoder:
+    def __init__(self, heads, model_size, stack):
+        self.heads = heads
+        self.model_size = model_size
+        self.stack = stack
+        self.decoder_stack = [DecoderLayer(heads, model_size) for i in range(stack)]
+
+    def begin_update(self, X, y, X_mask, y_mask):
+        backprops = []
+        for layer in self.decoder_stack:
+            X, layer_backprop = layer(X, y, X_mask, y_mask)
+            backprops.append(layer_backprop)
+        return X, backprops
