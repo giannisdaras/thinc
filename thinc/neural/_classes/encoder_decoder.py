@@ -73,3 +73,22 @@ class EncoderLayer:
         X, ffd_back = self.residuals[1].begin_update(X, self.ffd)
         # possibly wrong?
         return X, [ffd_back, attn_back]
+
+
+class DecoderLayer:
+    def __init__(heads, model_size):
+        self.heads = heads
+        self.model_size
+        self.slf_attention = MultiHeadedAttention(model_size, heads)
+        self.other_attention = MultiHeadedAttention(model_size, heads)
+        self.ffd = Linear(model_size, model_size)
+        self.residuals = [Residual(self.slf_attention),
+                          Residual(self.other_attention),
+                          Residual(self.ffd)
+                          ]
+
+    def begin_update(X, y, X_mask, y_mask):
+        y, slf_attn_back = self.residuals[0].begin_update(y, lambda x: self.slf_attention(y, y, y_mask))
+        y, other_attn_back = self.residuals[1].begin_update(y, lambda x: self.other_attention(y, x, x_mask))
+        y, ffd_back = self.ffd.begin_update(y)
+        return y, [ffd_back, other_attn_back, slf_attn_back]
