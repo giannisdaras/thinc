@@ -27,3 +27,18 @@ class EncoderDecoder:
         output, output_backprop = self.output_layer.begin_update()
         # possibly wrong?
         return output, [output_backprop, dec_backprop, enc_backprop]
+
+
+class Encoder:
+    def __init__(self, heads, model_size, stack):
+        self.heads = heads
+        self.model_size = model_size
+        self.stack = stack
+        self.encoder_stack = [EncoderLayer(heads, model_size) for i in range(stack)]
+
+    def begin_update(self, X, X_mask):
+        backprops = []
+        for layer in self.encoder_stack:
+            X, layer_backprop = layer(X, X_mask)
+            backprops.append(layer_backprop)
+        return X, backprops
