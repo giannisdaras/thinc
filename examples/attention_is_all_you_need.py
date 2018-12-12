@@ -67,10 +67,11 @@ def main(heads=6, dropout=0.1):
             batch_size = X.shape[0]
             max_sentence_in_batch = X.shape[1]
             model_size = X.shape[2]
+            ''' there is a computational overhead here. Positional encodings
+            can be get all at once, but let's keep it simple for now '''
             X_positions = model.ops.position_encode(max_sentence_in_batch, model_size)
-            print(X_positions.shape)
-            print(X.shape)
-            break
+            X = X + X_positions
+            y = y + X_positions
             batch = Batch(X, y, X_mask, y_mask)
             yh, backprop = model.begin_update(batch, drop=trainer.dropout)
 
