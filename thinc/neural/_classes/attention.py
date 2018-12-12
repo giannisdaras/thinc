@@ -15,60 +15,6 @@ def _set_dimensions_if_needed(model, X, y=None):
         else:
             model.nO = int(y.max()) + 1
 
-@describe.attributes(
-    nI=Dimension("Input width"),
-    heads=Dimension("Number of heads for the multiheaded attention"),
-    W=Synapses("Input weights",
-        lambda obj: (obj.nK+obj.nK+obj.nO, obj.nI),
-        lambda W, ops: ops.xavier_uniform_init(W)),
-    d_W=Gradient("W"),
-)
-class MultiHeadedAttention(Model):
-    ''' This class implements multiheaded attention. It can be used for self
-    attention or outer attention, depending on our needs. There is no left
-    and right context width. We attend to the whole sentence and we take
-    care of the masks to adjust appropriately. There are no actual different
-    weight matrices for each head, but a bigger weight matrix for all heads.
-    Going to bigger dimensions is the key to get the multiple heads.
-    For the time being; key, query and value matrices are supposed to have the
-    same length.
-    '''
-    def __init__(self, heads=6, nI=None, **kwargs):
-        super(MultiHeadedAttention, self).__init__(self, **kwargs)
-        self.heads = heads
-        self.nI = nI
-        self.nK = nI // heads
-
-
-    def attn(self, query, key, value, mask=None):
-        ''' Compute attention based on query, key, value
-        Expected data size: nB x nT x nK
-        '''
-        nB = query.shape[0]
-        # number of tokens in each sentence
-        nT = query.shape[1]
-        # key length
-        nK = query.shape[2]
-        scores = self.ops.xp.matmul(query, key.transpose(0, 2, 1)) / math.sqrt(self.nI)
-        # penalize masked tokens
-        scores[self.ops.xp.where(mask == 0)] = 1e-9
-        # TODO: fix this!
-        # this could be done much faster if softmax was supported for >= 3d arrays
-        for batch in range(nB):
-            scores[batch, :, :] = self.ops.softmax(scores[batch, :, :])
-        ''' Now the dimensions of scores are:
-        nB x nT x nT
-        We multiply by values which is nB x nT x nK, so the result is:
-        nB x nT x nK
-        '''
-        real_scores = self.ops.xp.matmul(scores, value)
-        return real_scores
-
-
-
-
-
-
 
 @describe.attributes(
     nK=Dimension("Key width"),
