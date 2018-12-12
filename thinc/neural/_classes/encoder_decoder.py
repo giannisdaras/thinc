@@ -57,3 +57,19 @@ class Decoder:
             X, layer_backprop = layer(X, y, X_mask, y_mask)
             backprops.append(layer_backprop)
         return X, backprops
+
+
+class EncoderLayer:
+    def __init__(heads, model_size):
+        self.heads = heads
+        self.model_size
+        self.attention = MultiHeadedAttention(model_size, heads)
+        self.ffd = Linear(model_size, model_size)
+        self.residuals = [Residual(self.attention), Residual(self.ffd)]
+
+    def begin_update(X, X_mask):
+        X, attn_back = self.residuals[0].begin_update(X,
+                                lambda x: self.attention(x, x, X_mask))
+        X, ffd_back = self.residuals[1].begin_update(X, self.ffd)
+        # possibly wrong?
+        return X, [ffd_back, attn_back]
