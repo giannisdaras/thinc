@@ -8,12 +8,26 @@ import plac
 import spacy
 from thinc.extra.datasets import get_iwslt
 from spacy.lang.en import English
+import pdb
 
-class ModelException(Exception):
-    pass
 
-class BatchesException(Exception):
-    pass
+def vectorize(batch, vectorizer):
+    ''' Vectorize a batch of tokens with a vectorizer nlp object
+    A batch (non-vectorized) contains some sentences (s) and some tokens (t).
+    A vectorized batch contains some sentences(s) and the d-dimensional vectorized
+    version of the tokens (d).
+    '''
+    # pdb.set_trace()
+    nB = len(batch)
+    nT = len(batch[0])
+    nD = len(vectorizer.vocab['test'].vector)
+    vectorized_batch = Model.ops.xp.empty([nB, nT, nD])
+    for sent_idx, sent in enumerate(batch):
+        for token_idx, token in enumerate(sent):
+            vectorized_token = Model.ops.asarray(vectorizer.vocab[token].vector)
+            vectorized_batch[sent_idx, token_idx, :] = vectorized_token
+    return Model.ops.asarray(vectorized_batch)
+
 
 @plac.annotations(
     heads=("number of heads of the multiheaded attention", "option"),
@@ -34,38 +48,15 @@ def main(heads=6, dropout=0.1):
     tokenizer = English().Defaults.create_tokenizer(nlp)
     train_X = [doc.text.split(' ') for doc in tokenizer.pipe(train_X[:20])]
     train_Y = [doc.text.split(' ') for doc in tokenizer.pipe(train_Y[:20])]
-
+    vectorizer = spacy.load('en_vectors_web_lg')
 
     ''' Mark Y sentences '''
     train_Y = add_eos_bos(train_Y)
     model = LinearModel(2)
     with model.begin_training(train_X, train_Y, batch_size=2, nb_epoch=1) as (trainer, optimizer):
         for X, y, X_mask, y_mask in trainer.batch_mask(train_X, train_Y):
+            X, y = vectorize(X, vectorizer), vectorize(y, vectorizer)
             pass
-            # next step vectorizer
-
-
-
-    # vectorizer = spacy.load('en_vectors_web_lg')
-    # ''' Mark Y sentences '''
-    # train_Y, dev_Y, test_Y = add_eos_bos(train_Y), \
-    #     add_eos_bos(dev_Y), add_eos_bos(test_Y)
-    #
-    # ''' batchify and mask '''
-    # train_X, train_Y, X_mask, Y_mask = batchify_and_mask(Model.ops)
-    # with model.begin_training(train_X, train_Y, optimizer=initNoAm(model.nI)) \
-    #         as (trainer, optimizer):
-    #         trainer.each_epoch(append(lambda: print(model.evaluate(dev_X, dev_Y))))
-    #         with X, y in trainer.iterate(train_X, train_Y):
-    #             ''' at this stage, we have X, y batched but not padded, so we
-    #             are missing padding and input/output masks.
-    #             Also, the representation is token-level, not embedding level,
-    #             meaning that we need an extra vectorizer step.
-    #             '''
-    #             yh, backprop = model.begin_update(X, drop=trainer.dropout)
-
-
-
 
 
 if __name__ == '__main__':
