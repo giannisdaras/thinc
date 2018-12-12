@@ -2,7 +2,10 @@ from thinc.neural.ops import NumpyOps, CupyOps, Ops
 from thinc.neural.optimizers import initNoAm
 from thinc.neural.util import add_eos_bos
 from thinc.linear.linear import LinearModel
+from thinc.neural._classes.attention import MultiHeadedAttention
+from thinc.neural._classes.encoder_decoder import EncoderDecoder
 from thinc.v2v import Model
+from thinc.api import chain, clone
 import numpy as np
 import plac
 import spacy
@@ -39,9 +42,10 @@ def vectorize(batch, vectorizer):
 
 @plac.annotations(
     heads=("number of heads of the multiheaded attention", "option"),
-    dropout=("model dropout", "option")
+    dropout=("model dropout", "option"),
+    stack=('Number of encoders/decoder in the enc/dec stack.', "option")
 )
-def main(heads=6, dropout=0.1):
+def main(heads=6, dropout=0.1, stack=6):
     if (CupyOps.xp != None):
         Model.ops = CupyOps()
         Model.Ops = CupyOps
@@ -60,7 +64,7 @@ def main(heads=6, dropout=0.1):
 
     ''' Mark Y sentences '''
     train_Y = add_eos_bos(train_Y)
-    model = LinearModel(2)
+    model = EncoderDecoder(stack, heads, model_size=300, tgt_vocab_size=10000)
     with model.begin_training(train_X, train_Y, batch_size=2, nb_epoch=1) as (trainer, optimizer):
         for X, y, X_mask, y_mask in trainer.batch_mask(train_X, train_Y):
             X, y = vectorize(X, vectorizer), vectorize(y, vectorizer)
@@ -73,8 +77,6 @@ def main(heads=6, dropout=0.1):
             X = X + X_positions
             y = y + X_positions
             batch = Batch(X, y, X_mask, y_mask)
-            yh, backprop = model.begin_update(batch, drop=trainer.dropout)
-
 
 if __name__ == '__main__':
     plac.call(main)
