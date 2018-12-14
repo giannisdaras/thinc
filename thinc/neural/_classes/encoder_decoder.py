@@ -6,13 +6,14 @@ from .resnet import Residual
 from ...linear.linear import LinearModel
 
 
-class EncoderDecoder:
-    def __init__(self, **kwargs):
-        self.stack = kwargs.get('stack', 6)
-        self.heads = kwargs.get('heads', 6)
-        self.model_size = kwargs.get('model_size', 300)
-        self.tgt_vocab_size = kwargs.get('tgt_vocab_size', 10000)
-        self.enc = LayerNorm(EncoderLayer(self.heads, seld.model_size, self.stack))
+class EncoderDecoder(Model):
+    def __init__(self, stack=6, heads=6, model_size=300, tgt_vocab_size=10000):
+        Model.__init__(self)
+        self.stack = stack
+        self.heads = heads
+        self.model_size = model_size
+        self.tgt_vocab_size = tgt_vocab_size
+        self.enc = LayerNorm(Encoder(self.heads, self.model_size, self.stack))
         self.dec = DecoderLayer(self.heads, self.model_size) ** self.stack
         self.output_layer = LinearModel(self.model_size, self.tgt_vocab_size)
 
@@ -25,12 +26,12 @@ class EncoderDecoder:
         enc_out, enc_backprop = self.enc.begin_update(X, X_mask)
         dec_out, dec_backprop = self.dec.begin_update(X, y, X_mask, y_mask)
         output, output_backprop = self.output_layer.begin_update()
-        # possibly wrong?
-        return output, [output_backprop, dec_backprop, enc_backprop]
+        return output, None
 
 
-class Encoder:
+class Encoder(Model):
     def __init__(self, heads, model_size, stack):
+        Model.__init__(self)
         self.heads = heads
         self.model_size = model_size
         self.stack = stack
@@ -41,11 +42,12 @@ class Encoder:
         for layer in self.encoder_stack:
             X, layer_backprop = layer(X, X_mask)
             backprops.append(layer_backprop)
-        return X, backprops
+        return X, None
 
 
-class Decoder:
+class Decoder(Model):
     def __init__(self, heads, model_size, stack):
+        Model.__init__(self)
         self.heads = heads
         self.model_size = model_size
         self.stack = stack
@@ -56,32 +58,33 @@ class Decoder:
         for layer in self.decoder_stack:
             X, layer_backprop = layer(X, y, X_mask, y_mask)
             backprops.append(layer_backprop)
-        return X, backprops
+        return X, None
 
 
-class EncoderLayer:
-    def __init__(heads, model_size):
+class EncoderLayer(Model):
+    def __init__(self, heads, model_size):
+        Model.__init__(self)
         self.heads = heads
-        self.model_size
+        self.model_size = model_size
         self.attention = MultiHeadedAttention(model_size, heads)
-        self.ffd = Linear(model_size, model_size)
+        self.ffd = LinearModel(model_size, model_size)
         self.residuals = [Residual(self.attention), Residual(self.ffd)]
 
     def begin_update(X, X_mask):
         X, attn_back = self.residuals[0].begin_update(X,
                                 lambda x: self.attention(x, x, X_mask))
         X, ffd_back = self.residuals[1].begin_update(X, self.ffd)
-        # possibly wrong?
-        return X, [ffd_back, attn_back]
+        return X, None
 
 
-class DecoderLayer:
-    def __init__(heads, model_size):
+class DecoderLayer(Model):
+    def __init__(self, heads, model_size):
+        Model.__init__(self)
         self.heads = heads
-        self.model_size
+        self.model_size = model_size
         self.slf_attention = MultiHeadedAttention(model_size, heads)
         self.other_attention = MultiHeadedAttention(model_size, heads)
-        self.ffd = Linear(model_size, model_size)
+        self.ffd = LinearModel(model_size, model_size)
         self.residuals = [Residual(self.slf_attention),
                           Residual(self.other_attention),
                           Residual(self.ffd)
@@ -91,7 +94,8 @@ class DecoderLayer:
         y, slf_attn_back = self.residuals[0].begin_update(y, lambda x: self.slf_attention(y, y, y_mask))
         y, other_attn_back = self.residuals[1].begin_update(y, lambda x: self.other_attention(y, x, x_mask))
         y, ffd_back = self.ffd.begin_update(y)
-        return y, [ffd_back, other_attn_back, slf_attn_back]
+        return y, None
+
 
 class MultiHeadedAttention(Model):
     ''' This class implements multiheaded attention. It can be used for self
@@ -103,7 +107,8 @@ class MultiHeadedAttention(Model):
     For the time being; key, query and value matrices are supposed to have the
     same length.
     '''
-    def __init__(self, nI, heads=6):
+    def __init__(self, nI=300, heads=6):
+        Model.__init__(self)
         self.heads = heads
         self.nI = nI  # model size: the length of the embeddings
         self.nK = nI // heads
@@ -120,7 +125,7 @@ class MultiHeadedAttention(Model):
         X = attn(query, key, value, mask=mask)
         X = X.reshape(1, 2).reshape(nB, -1, self.heads * self.nK)
         X, out_backprop = self.linears[-1].begin_update(X)
-        return X, [out_backprop, value_backprop, key_backprop, query_backprop]
+        return X, None
 
     def attn(self, query, key, value, mask=None):
         ''' Compute attention based on query, key, value
