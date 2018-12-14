@@ -23,6 +23,7 @@ class EncoderDecoder(Model):
         self.enc = Encoder(self.heads, self.model_size, self.stack)
         self.dec = Decoder(self.heads, self.model_size, self.stack)
         self.output_layer = LinearModel(self.model_size, self.tgt_vocab_size)
+        # a softmax missing here
 
     def begin_update(self, batch, drop=0.1):
         X = batch.X
@@ -31,8 +32,8 @@ class EncoderDecoder(Model):
         y_mask = batch.y_mask
         batch_size = batch.batch_size
         enc_out, enc_backprop = self.enc.begin_update(X, X_mask)
-        dec_out, dec_backprop = self.dec.begin_update(X, y, X_mask, y_mask)
-        output, output_backprop = self.output_layer.begin_update()
+        dec_out, dec_backprop = self.dec.begin_update(enc_out, y, X_mask, y_mask)
+        output, output_backprop = self.output_layer.begin_update(dec_out)
         return output, None
 
 
@@ -59,6 +60,8 @@ class Decoder(Model):
         self.model_size = model_size
         self.stack = stack
         self.decoder_stack = [DecoderLayer(heads, model_size) for i in range(stack)]
+        # missing subsequent mask, decoder layers should not be able to attend
+        # to feature outputs.
 
     def begin_update(self, X, y, X_mask, y_mask, drop=0.1):
         backprops = []
