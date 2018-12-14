@@ -6,6 +6,13 @@ from .resnet import Residual
 from ...linear.linear import LinearModel
 
 
+def preprocess(ops, keys):
+    lengths = ops.asarray([arr.shape[0] for arr in keys])
+    keys = ops.xp.concatenate(keys)
+    vals = ops.allocate(keys.shape[0]) + 1
+    return keys, vals, lengths
+
+
 class EncoderDecoder(Model):
     def __init__(self, stack=6, heads=6, model_size=300, tgt_vocab_size=10000):
         Model.__init__(self)
@@ -13,11 +20,11 @@ class EncoderDecoder(Model):
         self.heads = heads
         self.model_size = model_size
         self.tgt_vocab_size = tgt_vocab_size
-        self.enc = LayerNorm(Encoder(self.heads, self.model_size, self.stack))
-        self.dec = DecoderLayer(self.heads, self.model_size) ** self.stack
+        self.enc = Encoder(self.heads, self.model_size, self.stack)
+        self.dec = Decoder(self.heads, self.model_size, self.stack)
         self.output_layer = LinearModel(self.model_size, self.tgt_vocab_size)
 
-    def begin_update(self, batch):
+    def begin_update(self, batch, drop=0.1):
         X = batch.X
         y = batch.y
         X_mask = batch.X_mask
@@ -37,10 +44,10 @@ class Encoder(Model):
         self.stack = stack
         self.encoder_stack = [EncoderLayer(heads, model_size) for i in range(stack)]
 
-    def begin_update(self, X, X_mask):
+    def begin_update(self, X, X_mask, drop=0.1):
         backprops = []
         for layer in self.encoder_stack:
-            X, layer_backprop = layer(X, X_mask)
+            X, layer_backprop = layer.begin_update(X, X_mask)
             backprops.append(layer_backprop)
         return X, None
 
@@ -53,10 +60,10 @@ class Decoder(Model):
         self.stack = stack
         self.decoder_stack = [DecoderLayer(heads, model_size) for i in range(stack)]
 
-    def begin_update(self, X, y, X_mask, y_mask):
+    def begin_update(self, X, y, X_mask, y_mask, drop=0.1):
         backprops = []
         for layer in self.decoder_stack:
-            X, layer_backprop = layer(X, y, X_mask, y_mask)
+            X, layer_backprop = layer.begin_update(X, y, X_mask, y_mask)
             backprops.append(layer_backprop)
         return X, None
 
@@ -68,12 +75,12 @@ class EncoderLayer(Model):
         self.model_size = model_size
         self.attention = MultiHeadedAttention(model_size, heads)
         self.ffd = LinearModel(model_size, model_size)
-        self.residuals = [Residual(self.attention), Residual(self.ffd)]
+        self.residuals = [self.attention, self.ffd]
 
-    def begin_update(X, X_mask):
-        X, attn_back = self.residuals[0].begin_update(X,
-                                lambda x: self.attention(x, x, X_mask))
-        X, ffd_back = self.residuals[1].begin_update(X, self.ffd)
+    def begin_update(self, X, X_mask, drop=0.1):
+        X, attn_back = self.residuals[0].begin_update(X, X, X_mask)
+        keys_values_lenghts = preprocess(self.ops, X)
+        X, ffd_back = self.residuals[1].begin_update(keys_values_lenghts, self.ffd)
         return X, None
 
 
@@ -85,15 +92,16 @@ class DecoderLayer(Model):
         self.slf_attention = MultiHeadedAttention(model_size, heads)
         self.other_attention = MultiHeadedAttention(model_size, heads)
         self.ffd = LinearModel(model_size, model_size)
-        self.residuals = [Residual(self.slf_attention),
-                          Residual(self.other_attention),
-                          Residual(self.ffd)
+        self.residuals = [self.slf_attention,
+                          self.other_attention,
+                          self.ffd
                           ]
 
-    def begin_update(X, y, X_mask, y_mask):
-        y, slf_attn_back = self.residuals[0].begin_update(y, lambda x: self.slf_attention(y, y, y_mask))
-        y, other_attn_back = self.residuals[1].begin_update(y, lambda x: self.other_attention(y, x, x_mask))
-        y, ffd_back = self.ffd.begin_update(y)
+    def begin_update(self, X, y, X_mask, y_mask, drop=0.1):
+        y, slf_attn_back = self.residuals[0].begin_update(y, y, y_mask)
+        y, other_attn_back = self.residuals[1].begin_update(y, X, X_mask)
+        keys_values_lenghts = preprocess(self.ops, y)
+        y, ffd_back = self.ffd.begin_update(keys_values_lenghts)
         return y, None
 
 
@@ -114,17 +122,21 @@ class MultiHeadedAttention(Model):
         self.nK = nI // heads
         self.linears = [LinearModel(nI, nI) for i in range(4)]
 
-    def begin_update(X, y, mask):
+    def begin_update(self, X, y, mask, drop=0.1):
         nB = X.shape[0]
-        query, query_backprop = self.linears[0].begin_update(X)
+        print('Shape of X: ', X.shape)
+        X_keys_values_lengths = preprocess(self.ops, X)
+        y_keys_values_lengths = preprocess(self.ops, y)
+        query, query_backprop = self.linears[0].begin_update(X_keys_values_lengths)
         query = query.reshape(nB, -1, self.heads, self.nK)
-        key, key_backprop = self.linears[1].begin_update(y)
+        key, key_backprop = self.linears[1].begin_update(y_keys_values_lengths)
         key = key.reshape(nB, -1, self.heads, self.nK)
-        value, value_backprop = self.linears[2].begin_update(y)
+        value, value_backprop = self.linears[2].begin_update(y_keys_values_lengths)
         value.reshape(nB, -1, self.heads, self.nK)
         X = attn(query, key, value, mask=mask)
         X = X.reshape(1, 2).reshape(nB, -1, self.heads * self.nK)
-        X, out_backprop = self.linears[-1].begin_update(X)
+        X_keys_values_lengths = preprocess(self.ops, X)
+        X, out_backprop = self.linears[-1].begin_update(X_keys_values_lengths)
         return X, None
 
     def attn(self, query, key, value, mask=None):
