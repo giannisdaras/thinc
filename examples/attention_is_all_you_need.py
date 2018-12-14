@@ -2,7 +2,6 @@ from thinc.neural.ops import NumpyOps, CupyOps, Ops
 from thinc.neural.optimizers import initNoAm
 from thinc.neural.util import add_eos_bos
 from thinc.linear.linear import LinearModel
-from thinc.neural._classes.attention import MultiHeadedAttention
 from thinc.neural._classes.encoder_decoder import EncoderDecoder
 from thinc.v2v import Model
 from thinc.api import chain, clone
@@ -13,13 +12,15 @@ from thinc.extra.datasets import get_iwslt
 from spacy.lang.en import English
 import pdb
 
+MODEL_SIZE = 300
+
 
 class Batch:
     def __init__(self, X, y, X_mask, y_mask):
         self.X = X
         self.y = y
         self.X_mask = X_mask
-        self.y_mask
+        self.y_mask = y_mask
         self.batch_size = X.shape[0]
 
 
@@ -64,7 +65,7 @@ def main(heads=6, dropout=0.1, stack=6):
 
     ''' Mark Y sentences '''
     train_Y = add_eos_bos(train_Y)
-    model = EncoderDecoder(stack, heads, model_size=300, tgt_vocab_size=10000)
+    model = EncoderDecoder()
     with model.begin_training(train_X, train_Y, batch_size=2, nb_epoch=1) as (trainer, optimizer):
         for X, y, X_mask, y_mask in trainer.batch_mask(train_X, train_Y):
             X, y = vectorize(X, vectorizer), vectorize(y, vectorizer)
@@ -77,6 +78,11 @@ def main(heads=6, dropout=0.1, stack=6):
             X = X + X_positions
             y = y + X_positions
             batch = Batch(X, y, X_mask, y_mask)
+            yh, backprop = model.begin_update(batch, drop=trainer.dropout)
+            backprop(yh, optimizer)
+
+
+
 
 if __name__ == '__main__':
     plac.call(main)
