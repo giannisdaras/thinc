@@ -1,6 +1,8 @@
 from __future__ import print_function, unicode_literals
 import numpy
+from collections import defaultdict
 from preshed.maps import PreshMap
+
 
 try:
     import cupy
@@ -157,17 +159,24 @@ def minibatch(stream, batch_size=1000): # pragma: no cover
             yield batch
 
 
-def numericalize_vocab(nlp):
+def numericalize_vocab(nlp, rank=True):
     ''' Numericalize vocabulary in a continuous range '''
-    word2indx = {}
-    indx2word = {}
-    for indx, word in enumerate(nlp.vocab):
-        word2indx[word] = indx
-        indx2word[indx] = word
-    word2indx['oov'] = len(nlp.vocab)
-    indx2word[len(nlp.vocab)] = 'oov'
+    word2indx = defaultdict(int)  # all oov to 0
+    indx2word = defaultdict(lambda: 'oov')
+    if rank:
+        for word in nlp.vocab:
+            word2indx[word.text] = word.rank
+            indx2word[word.rank] = word.text
+    else:
+        for indx, word in enumerate(nlp.vocab):
+            word2indx[word.text] = indx
+            indx2word[indx] = word.text
     return word2indx, indx2word
 
-def numericalize(X, word2indx):
+
+def numericalize(word2indx, *args):
     ''' Get numerical input out of list of tokens '''
-    return [word2indx[x] for x in X]
+    result = []
+    for X in args:
+        result.append([word2indx[x] for x in X])
+    return result
