@@ -6,6 +6,7 @@ from pathlib import Path
 import itertools
 
 
+
 try:
     import cupy
     from cupy import get_array_module
@@ -32,7 +33,6 @@ def is_cupy_array(arr):
         return True
     else:
         return False
-
 
 def is_numpy_array(arr):
     """Check whether an array is a numpy array"""
@@ -103,6 +103,13 @@ def mark_sentence_boundaries(sequences, drop=0.0):  # pragma: no cover
         sequence.append("-EOL-")
     return sequences, None
 
+
+def add_eos_bos(sentences):
+    '''Add eos and bos tokens to a batch of sentences'''
+    for sentence in sentences:
+        sentence.insert(0, '<bos>')
+        sentence.append('<eos>')
+    return sentences
 
 def remap_ids(ops):
     id_map = {0: 0}

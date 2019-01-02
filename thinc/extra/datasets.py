@@ -1,6 +1,6 @@
 # coding: utf8
 from __future__ import unicode_literals
-
+import glob
 import random  # pragma: no cover
 import io  # pragma: no cover
 from collections import Counter  # pragma: no cover
@@ -12,6 +12,7 @@ import sys
 from srsly import cloudpickle as pickle
 from pathlib import Path
 
+import xml.etree.ElementTree as ElementTree
 from ._vendorized.keras_data_utils import get_file  # pragma: no cover
 from ..neural.util import partition
 from ..compat import basestring
@@ -260,3 +261,81 @@ def get_word_index(path="reuters_word_index.pkl"):  # pragma: no cover
 
     f.close()
     return data
+
+
+def get_iwslt(path='en-de', exts=('.en', '.de')):
+    '''
+    Create dataset for translation
+    exts: a tuple containing the extension to path for each language
+    '''
+    src = exts[0][1:]
+    trg = exts[1][1:]
+    iwslt_url = IWSLT_BASE.format(src, trg, src + '-' + trg)
+    path = get_file(path, iwslt_url, untar=True)
+    ''' Cleaning dataset code, thanks to:
+    https://pytorchnlp.readthedocs.io/en/latest/_modules/torchnlp/datasets/iwslt.html
+    '''
+    for xml_filename in glob.iglob(os.path.join(path, '*.xml')):
+        txt_filename = os.path.splitext(xml_filename)[0]
+        if os.path.isfile(txt_filename):
+            continue
+
+        with io.open(txt_filename, mode='w', encoding='utf-8') as f:
+            root = ElementTree.parse(xml_filename).getroot()[0]
+            for doc in root.findall('doc'):
+                for element in doc.findall('seg'):
+                    f.write(element.text.strip() + '\n')
+    xml_tags = [
+        '<url', '<keywords', '<talkid', '<description', '<reviewer',
+        '<translator', '<title', '<speaker'
+    ]
+    for original_filename in glob.iglob(os.path.join(path, 'train.tags*')):
+        txt_filename = original_filename.replace('.tags', '')
+        if os.path.isfile(txt_filename):
+            continue
+
+        with io.open(txt_filename, mode='w', encoding='utf-8') as txt_file, \
+                io.open(original_filename, mode='r', encoding='utf-8') as org:
+            for line in org:
+                if not any(tag in line for tag in xml_tags):
+                    txt_file.write(line.strip() + '\n')
+    ''' Getting training, dev and test data '''
+    ''' test data '''
+    X_test, Y_test = [], []
+    years = ['2010', '2011', '2012', '2013', '2014']
+    for year in years:
+        test_src_path = os.path.join(path, 'IWSLT16.TED.tst{}.{}-{}.{}'
+                                     .format(year, src, trg, src))
+        test_trg_path = os.path.join(path, 'IWSLT16.TED.tst{}.{}-{}.{}'
+                                     .format(year, src, trg, trg))
+        with open(test_src_path, 'rb') as f:
+            src_test = f.readlines()
+        with open(test_trg_path, 'rb') as f:
+            trg_test = f.readlines()
+        X_test.extend([x.strip().decode('utf-8') for x in src_test])
+        Y_test.extend([x.strip().decode('utf-8') for x in trg_test])
+
+    ''' dev data '''
+    dev_src_path = os.path.join(path, 'IWSLT16.TED.dev2010.{}-{}.{}'
+                                .format(src, trg, src))
+    dev_trg_path = os.path.join(path, 'IWSLT16.TED.dev2010.{}-{}.{}'
+                                .format(src, trg, trg))
+    with open(dev_src_path, 'rb') as f:
+        src_dev = f.readlines()
+    with open(dev_trg_path, 'rb') as f:
+        trg_dev = f.readlines()
+    X_dev = [x.strip().decode('utf-8') for x in src_dev]
+    Y_dev = [x.strip().decode('utf-8') for x in trg_dev]
+
+    ''' train data '''
+    train_src_path = os.path.join(path, 'train.{}-{}.{}'.format(src, trg, src))
+    train_trg_path = os.path.join(path, 'train.{}-{}.{}'.format(src, trg, trg))
+    with open(train_src_path, 'rb') as f:
+        src_train = f.readlines()
+    with open(train_trg_path, 'rb') as f:
+        trg_train = f.readlines()
+    X_train = [x.strip().decode('utf-8') for x in src_train]
+    Y_train = [x.strip().decode('utf-8') for x in trg_train]
+    return list(zip(X_train, Y_train)), \
+        list(zip(X_dev, Y_dev)), \
+        list(zip(X_test, Y_test)),

@@ -14,12 +14,14 @@ from thinc.v2v import Model
 
 
 def main(length=1000, nO=32, nI=32):
-    if CupyOps.xp is not None:
+    ''' Driver function '''
+    if CupyOps.xp != None:
         print("Use GPU")
         Model.ops = CupyOps()
         Model.Ops = CupyOps
-        torch.set_default_tensor_type("torch.cuda.FloatTensor")
-
+        torch.set_default_tensor_type('torch.cuda.FloatTensor')
+    else:
+        print("GPU not available. Running on CPU.")
     pt_model = nn.Linear(nI, nO)
     optimizer = torch.optim.Adam(pt_model.parameters())  # noqa: F841
 

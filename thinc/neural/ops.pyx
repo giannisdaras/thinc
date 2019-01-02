@@ -33,6 +33,9 @@ cdef extern from "math.h":
     float sqrtf(float x) nogil
     float expf(float x) nogil
     float tanhf(float x) nogil
+    float sinf(float x) nogil
+    float cosf(float x) nogil
+
 
 
 try:
@@ -235,7 +238,7 @@ class Ops(object):
 
     def argmax(self, x, axis=-1):
         return self.xp.argmax(x, axis=axis)
-    
+
     def sigmoid(self, X):
         return 1./(1. + self.xp.exp(-X))
 
@@ -342,7 +345,7 @@ class Ops(object):
             return W
         else:
             return self.xp.random.uniform(-scale, scale, W.shape)
-    
+
     def normal_init(self, W, fan_in, inplace=True):
         if (W**2).sum() != 0.:
             return W
@@ -409,7 +412,7 @@ class NumpyOps(Ops):
         else:
             m = x.shape[0]
         cdef int n
-        if trans2: 
+        if trans2:
             n = y.shape[0]
         else:
             n = y.shape[1]
@@ -417,9 +420,12 @@ class NumpyOps(Ops):
         if out is None:
             out_array = self.allocate((m, n))
         else:
+            if out.shape != (m, n):
+                raise ValueError(
+                    "Unexpected shape of output array. " +
+                    "Expected: (%d, %d). " % (m, n) +
+                    "Got: (%d, %d)" % (out.shape[0], out.shape[1]))
             out_array = self.xp.asarray(out)
-        assert out_array.shape[0] == m
-        assert out_array.shape[1] == n
         blis.py.gemm(x, y, out=out_array, trans1=trans1, trans2=trans2)
         return out_array
 
@@ -710,7 +716,7 @@ class NumpyOps(Ops):
                 ids.shape[0], out.shape[1])
         else:
             self.xp.add.at(out, ids, inputs)
- 
+
     @cython.boundscheck(False)
     @cython.wraparound(False)
     def adam(self, float[::1] weights, float[::1] gradient, float[::1] mom1,
@@ -730,6 +736,36 @@ class NumpyOps(Ops):
             output[i] = hash64(&keys[i], n*sizeof(keys[0]), 0)
         return output_
 
+    def position_encode(self, int N, int D, int period=10000, out=None):
+        cdef np.ndarray out_
+        if out is None:
+            out_ = self.allocate((N, D))
+        else:
+            out_ = out
+        assert out_.shape[0] == N
+        assert out_.shape[1] == D
+        cpu_position_encode(<float*>out_.data, period, N, D)
+        return out_
+
+
+cdef void cpu_position_encode(float* output, float period, int N, int D) nogil:
+    cdef float pos, d
+    cdef int j
+    cdef float dimensions = D
+    for i in range(N):
+        pos = i
+        j = 0
+        d = 0
+        while (j+1) < D:
+            d = j
+            output[j]   = sinf(pos / period ** (2 * d / dimensions))
+            output[j+1] = cosf(pos / period ** (2 * d / dimensions))
+            j += 2
+        if j < D:
+            output[j]   = sinf(pos / period ** (2 * d / dimensions))
+        output += D
+
+
 
 cdef void cpu_scatter_add(float* dest,
         const int* indices, const float* src,
@@ -740,7 +776,7 @@ cdef void cpu_scatter_add(float* dest,
         if id_ >= 0:
             VecVec.add_i(&dest[id_*nr_col],
         	&src[i*nr_col], 1., nr_col)
- 
+
 
 @cython.cdivision(True)
 cdef void _adam_momentum(weight_t* gradient, weight_t* mom1, weight_t* mom2,
@@ -940,6 +976,24 @@ class CupyOps(Ops):
             return W
         else:
             return inits
+
+    def position_encode(self, N, D, period=10000, out=None):
+      if (out is None):
+        out_ = self.xp.empty([N, D])
+      else:
+        out_ = out
+      assert out_.shape[0] == N
+      assert out_.shape[1] == D
+      dimensions = D
+      for i in self.xp.arange(N):
+        pos = i
+        for j in self.xp.arange(D):
+          if ( (j+1) % 2 == 0):
+            out_[i, j] = self.xp.sin(pos / period ** (2*(j+1) / D))
+          else:
+            out_[i, j] = self.xp.cos(pos / period ** (2*(j+1) / D))
+      return out_
+
 
 
 cdef void seq2col(float* output, const float* X, int B, int I, int nW) nogil:
@@ -1218,5 +1272,3 @@ cdef void cpu_lstm_gates_bwd(float* d_cells, float* d_prev, float* d_gates,
         gates += N*4
         cells += N
         prev += N
-
-

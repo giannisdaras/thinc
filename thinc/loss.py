@@ -27,3 +27,15 @@ def L1_distance(vec1, vec2, labels, margin=0.2):
     dist = xp.abs(vec1 - vec2).sum(axis=1)
     loss = (dist > margin) - labels
     return (vec1 - vec2) * loss, (vec2 - vec1) * loss, loss
+
+
+def KLDIVLoss(scores_x, scores_y, reduced=False):
+    ''' KLDIVLoss is better used after a label smoothing for the scores y.
+    The formula is: l_i = y_i * ( logy_i - x_i)
+    '''
+    if reduced:
+        raise NotImplementedError
+    else:
+        xp = get_array_module(scores_x)
+        log_y = xp.log(scores_y)
+        return xp.multiply(scores_y, log_y - scores_x)

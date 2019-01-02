@@ -43,6 +43,14 @@ def flatten_add_lengths(seqs, pad=0, drop=0.0):
     X = ops.flatten(seqs, pad=pad)
     return (X, lengths), finish_update
 
+@layerize
+def unflatten(X_lengths, drop=0.):
+    ops = Model.ops
+    X, lengths = X_lengths
+    def finish_update(d_Xs, sgd=None):
+        return ops.flatten(d_Xs)
+    return ops.unflatten(X, lengths), finish_update
+
 
 def remap_ids(ops=None, column=0):
     id_map = {0: 0}
@@ -80,6 +88,15 @@ def with_getitem(idx, layer):
 
     model.on_data_hooks.append(on_data)
     return model
+
+
+def getitem(idx):
+    def begin_update(items, drop=0.):
+        def finish_update(dX, sgd=None):
+            return dX
+        return items[idx], finish_update
+    return layerize(begin_update)
+
 
 
 def noop(*layers):
@@ -440,3 +457,17 @@ def foreach_sentence(layer, drop_factor=1.0):
 
     model = wrap(sentence_fwd, layer)
     return model
+
+
+@layerize
+def position_encode(X_lengths, drop=0.):
+    ops = Model.ops
+    X, lengths = X_lengths
+    max_length = max(lengths)
+    encodings = ops.position_encode(max_length, X.shape[1])
+    start = 0
+    output = ops.allocate(X.shape)
+    for length in lengths:
+        output[start : start + length] = X[start : start+length] + encodings[:length]
+        start += length
+    return (output, lengths), None
