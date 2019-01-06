@@ -6,8 +6,36 @@ from .softmax import Softmax
 from .layernorm import LayerNorm
 from .resnet import Residual
 from .affine import Affine
-import torch.nn as nn
 
+
+class SeqLinear(Model):
+    def __init__(self, nI=300, nO=300):
+        Model.__init__(self)
+        self.nI = nI
+        self.nO = nO
+        self.W = Model.ops.xp.random.rand(nO, nI)
+
+    def begin_update(self, X, dim=3):
+        X2d = X.reshape(X.shape[0] * X.shape[1], X.shape[2])
+        Y2d = Model.ops.gemm(X2d, self.W, trans2=True)
+
+        def backward(dY):
+            ''' todo complete this '''
+            return None
+        if dim == 3:
+            return Y2d.reshape(X.shape[0], X.shape[1], X.shape[2]), backward
+        else:
+            return Y2d, backward
+
+
+class SeqSoftmax(Model):
+    def __init__(self, nI=300, nO=300):
+        Model.__init__(self)
+        self.linear = SeqLinear(nI, nO)
+
+    def begin_update(self, X):
+        out, linear_backprop = self.linear.begin_update(X, dim=2)
+        return self.ops.softmax(out), None
 
 
 class EncoderDecoder(Model):
