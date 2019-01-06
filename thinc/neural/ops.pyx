@@ -249,9 +249,9 @@ class Ops(object):
         return 1-y**2
 
     def softmax(self, x, inplace=False, axis=-1):
-        if x.ndim >= 3:
-            raise NotImplementedError(
-                "Softmax currently only supports 2d. ndim=%d" % x.ndim)
+        # if x.ndim >= 3:
+        #     raise NotImplementedError(
+        #         "Softmax currently only supports 2d. ndim=%d" % x.ndim)
         shape = x.shape
         maxes = self.xp.max(x, axis=axis, keepdims=True)
         shifted = x - maxes
