@@ -56,18 +56,20 @@ class EncoderDecoder(Model):
         self.tgt_vocab_size = tgt_vocab_size
         self.enc = Encoder(self.heads, self.model_size, self.stack)
         self.dec = Decoder(self.heads, self.model_size, self.stack)
-        self.output_layer = Softmax(model_size, tgt_vocab_size)
+        self.output_layer = SeqSoftmax(model_size, tgt_vocab_size)
 
     def begin_update(self, batch, drop=0.1):
         '''
         A batch object flows through the network. It contains input, output and
         corresponding masks. Input changes while the object travels through
         the network. Output is the golden output.
+
+        Input: sentences_in_batch x tokens_per_sentence x model_size
         '''
         enc_out, enc_backprop = self.enc.begin_update(batch)
-        batch.X = enc_out
         dec_out, dec_backprop = self.dec.begin_update(batch)
-        output, output_backprop = self.output_layer.begin_update(dec_out)
+        y = dec_out.y
+        output, output_backprop = self.output_layer.begin_update(y)
         return output, None
 
 
@@ -83,9 +85,7 @@ class Encoder(Model):
                                        EncoderLayer(heads, model_size))
 
     def begin_update(self, batch, drop=0.1):
-        ''' TODO: solve the backpropagation '''
-        X, encoders_backprops = self.encoder_stack.begin_update(batch)
-        batch.X = X
+        batch, encoders_backprop = self.encoder_stack.begin_update(batch)
         print('Encoder stack computed output')
         return batch, None
 
@@ -96,15 +96,15 @@ class Decoder(Model):
         self.heads = heads
         self.model_size = model_size
         self.stack = stack
-        ''' TODO: multiple errors '''
-        self.decoder_stack = [DecoderLayer(heads, model_size) for i in range(stack)]
+        self.decoder_stack = DecoderLayer(heads, model_size)
+        for i in range(self.stack - 1):
+            self.decoder_stack = chain(self.decoder_stack,
+                                       DecoderLayer(heads, model_size))
 
-    def begin_update(self, X, y, X_mask, y_mask, drop=0.1):
-        backprops = []
-        for layer in self.decoder_stack:
-            X, layer_backprop = layer.begin_update(X, y, X_mask, y_mask)
-            backprops.append(layer_backprop)
-        return X, None
+    def begin_update(self, batch, drop=0.1):
+        batch, decoder_backprop = self.decoder_stack.begin_update(batch)
+        print('Decoder stack computed output')
+        return batch, None
 
 
 class EncoderLayer(Model):
@@ -113,7 +113,7 @@ class EncoderLayer(Model):
         self.heads = heads
         self.model_size = model_size
         self.attention = MultiHeadedAttention(model_size, heads)
-        self.ffd = PyTorchWrapper(nn.Linear(model_size, model_size))
+        self.ffd = SeqLinear(model_size, model_size)
 
     def begin_update(self, batch, drop=0.1):
         X = batch.X
@@ -131,17 +131,22 @@ class DecoderLayer(Model):
         self.model_size = model_size
         self.slf_attention = MultiHeadedAttention(model_size, heads)
         self.other_attention = MultiHeadedAttention(model_size, heads)
-        self.ffd = PyTorchWrapper(nn.Linear(model_size, model_size))
+        self.ffd = SeqLinear(model_size, model_size)
         self.residuals = [self.slf_attention,
                           self.other_attention,
                           self.ffd
                           ]
 
-    def begin_update(self, X, y, X_mask, y_mask, drop=0.1):
+    def begin_update(self, batch, drop=0.1):
+        X = batch.X
+        y = batch.y
+        X_mask = batch.X_mask
+        y_mask = batch.y_mask
         y, slf_attn_back = self.residuals[0].begin_update(y, y, y_mask)
         y, other_attn_back = self.residuals[1].begin_update(y, X, X_mask)
         y, ffd_back = self.ffd.begin_update(y)
-        return y, None
+        batch.y = y
+        return batch, None
 
 
 class MultiHeadedAttention(Model):
@@ -159,7 +164,7 @@ class MultiHeadedAttention(Model):
         self.heads = heads
         self.nI = nI  # model size: the length of the embeddings
         self.nK = nI // heads
-        self.linears = [PyTorchWrapper(nn.Linear(nI, nI)) for i in range(4)]
+        self.linears = [SeqLinear(nI, nI) for i in range(4)]
 
     def begin_update(self, X, y, mask, drop=0.1):
         nB = X.shape[0]
