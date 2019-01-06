@@ -34,6 +34,7 @@ EWTB_1_4_ZIP = "{github}/{ewtb}/archive/r1.4.zip".format(
 SNLI_URL = "http://nlp.stanford.edu/projects/snli/snli_1.0.zip"
 QUORA_QUESTIONS_URL = "http://qim.ec.quoracdn.net/quora_duplicate_questions.tsv"
 IMDB_URL = "http://ai.stanford.edu/~amaas/data/sentiment/aclImdb_v1.tar.gz"
+IWSLT_BASE = 'https://wit3.fbk.eu/archive/2016-01//texts/{}/{}/{}.tgz'
 
 
 def ancora_pos_tags(encode_words=False):  # pragma: no cover
