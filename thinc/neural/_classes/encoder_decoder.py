@@ -23,7 +23,7 @@ class SeqLinear(Model):
             ''' todo complete this '''
             return None
         if dim == 3:
-            return Y2d.reshape(X.shape[0], X.shape[1], X.shape[2]), backward
+            return Y2d.reshape(X.shape[0], X.shape[1], -1), backward
         else:
             return Y2d, backward
 
@@ -34,7 +34,7 @@ class SeqSoftmax(Model):
         self.linear = SeqLinear(nI, nO)
 
     def begin_update(self, X):
-        out, linear_backprop = self.linear.begin_update(X, dim=2)
+        out, linear_backprop = self.linear.begin_update(X)
         return self.ops.softmax(out), None
 
 
