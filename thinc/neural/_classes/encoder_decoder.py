@@ -173,33 +173,26 @@ class MultiHeadedAttention(Model):
         key, key_backprop = self.linears[1].begin_update(y)
         key = key.reshape(nB, -1, self.heads, self.nK)
         value, value_backprop = self.linears[2].begin_update(y)
-        value.reshape(nB, -1, self.heads, self.nK)
+        value = value.reshape(nB, -1, self.heads, self.nK)
         X = self.attn(query, key, value, mask=mask)
-        X = X.reshape(1, 2).reshape(nB, -1, self.heads * self.nK)
+        ''' sentences_in_batch x tokens_in_sentence x heads x head_vector '''
+        X = X.reshape(X.shape[0], X.shape[1], X.shape[2]*X.shape[3])
         X, out_backprop = self.linears[-1].begin_update(X)
         return X, None
 
     def attn(self, query, key, value, mask=None):
-        ''' Compute attention based on query, key, value
-        Expected data size: nB x -1 x nT x nK
+        ''' Compute attention on (query,key,value) triplet '''
         '''
-        nB = query.shape[0]
-        # number of tokens in each sentence
-        nT = query.shape[2]
-        # key length
-        nK = query.shape[3]
-        scores = self.ops.xp.matmul(query, key.transpose(0, 1, 3, 2)) \
-            / math.sqrt(self.nI)
-        # penalize masked tokens
-        scores[self.ops.xp.where(mask == 0)] = 1e-9
-        # TODO: fix this!
-        # this could be done much faster if softmax was supported for >= 3d.
-        for batch in range(nB):
-            scores[batch, :, :, :] = self.ops.softmax(scores[batch, :, :])
-        ''' Now the dimensions of scores are:
-        nB x nT x nT
-        We multiply by values which is nB x nT x nK, so the result is:
-        nB x nT x nK
+        query shape:
+        0: number of sentences
+        1: number of tokens in the sentence
+        2: number of heads
+        3: vector dimension for each token of each head of each sentence
         '''
-        real_scores = self.ops.xp.matmul(scores, value)
+        scores = self.ops.xp.matmul(query.transpose(0, 2, 1, 3),
+                                    key.transpose(0, 2, 3, 1) /
+                                    math.sqrt(self.nI))
+        scores = self.ops.softmax(scores)
+        value = value.transpose(0, 2, 1, 3)
+        real_scores = self.ops.xp.matmul(scores, value).transpose(0, 2, 1, 3)
         return real_scores
