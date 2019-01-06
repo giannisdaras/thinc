@@ -1,6 +1,6 @@
 # coding: utf8
 from __future__ import print_function, unicode_literals
-
+from collections import defaultdict
 import numpy
 from pathlib import Path
 import itertools
@@ -168,3 +168,26 @@ def partition(examples, split_size):  # pragma: no cover
     n_docs = len(examples)
     split = int(n_docs * split_size)
     return examples[:split], examples[split:]
+
+
+def numericalize_vocab(nlp, rank=True):
+    ''' Numericalize vocabulary in a continuous range '''
+    word2indx = defaultdict(int)  # all oov to 0
+    indx2word = defaultdict(lambda: 'oov')
+    if rank:
+        for word in nlp.vocab:
+            word2indx[word.text] = word.rank
+            indx2word[word.rank] = word.text
+    else:
+        for indx, word in enumerate(nlp.vocab):
+            word2indx[word.text] = indx
+            indx2word[indx] = word.text
+    return word2indx, indx2word
+
+
+def numericalize(word2indx, *args):
+    ''' Get numerical input out of list of tokens '''
+    result = []
+    for X in args:
+        result.append([word2indx[x] for x in X])
+    return result
