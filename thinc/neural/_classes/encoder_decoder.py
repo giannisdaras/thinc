@@ -168,7 +168,7 @@ class DecoderLayer(Model):
 
         def finish_update(grad__BO):
             return slf_attn_back(other_attn_back(ffd_back(grad__BO)))
-        return batch, None
+        return batch, finish_update
 
 
 class MultiHeadedAttention(Model):
