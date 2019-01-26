@@ -80,7 +80,10 @@ class EncoderDecoder(Model):
         dec_out, dec_backprop = self.dec.begin_update(batch)
         y = dec_out.y
         output, output_backprop = self.output_layer.begin_update(y)
-        return output, None
+
+        def finish_update(grad__BO):
+            return enc_backprop(dec_backprop(output_backprop(grad__BO)))
+        return output, finish_update
 
 
 class Encoder(Model):
@@ -96,8 +99,7 @@ class Encoder(Model):
 
     def begin_update(self, batch, drop=0.1):
         batch, encoders_backprop = self.encoder_stack.begin_update(batch)
-        print('Encoder stack computed output')
-        return batch, None
+        return batch, encoders_backprop
 
 
 class Decoder(Model):
@@ -112,9 +114,9 @@ class Decoder(Model):
                                        DecoderLayer(heads, model_size))
 
     def begin_update(self, batch, drop=0.1):
-        batch, decoder_backprop = self.decoder_stack.begin_update(batch)
+        batch, decoders_backprop = self.decoder_stack.begin_update(batch)
         print('Decoder stack computed output')
-        return batch, None
+        return batch, decoders_backprop
 
 
 class EncoderLayer(Model):
@@ -131,7 +133,10 @@ class EncoderLayer(Model):
         X, attn_back = self.attention.begin_update(X, X, X_mask)
         X, ffd_back = self.ffd.begin_update(X)
         batch.X = X
-        return batch, None
+
+        def finish_update(grad__BO):
+            return attn_back(ffd_back(grad__BO))
+        return batch, finish_update
 
 
 class DecoderLayer(Model):
@@ -156,6 +161,9 @@ class DecoderLayer(Model):
         y, other_attn_back = self.residuals[1].begin_update(y, X, X_mask)
         y, ffd_back = self.ffd.begin_update(y)
         batch.y = y
+
+        def finish_update(grad__BO):
+            return slf_attn_back(other_attn_back(ffd_back(grad__BO)))
         return batch, None
 
 
