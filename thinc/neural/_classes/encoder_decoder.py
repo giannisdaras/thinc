@@ -191,19 +191,29 @@ class MultiHeadedAttention(Model):
     def begin_update(self, X, y, mask, drop=0.1):
         nB = X.shape[0]
         query, query_backprop = self.linears[0].begin_update(X)
+        query_shape = query.shape
         query = query.reshape(nB, -1, self.heads, self.nK)
         key, key_backprop = self.linears[1].begin_update(y)
         key = key.reshape(nB, -1, self.heads, self.nK)
         value, value_backprop = self.linears[2].begin_update(y)
         value = value.reshape(nB, -1, self.heads, self.nK)
-        X = self.attn(query, key, value, mask=mask)
+        X, attn_backprop = self.attn(query, key, value, mask=mask)
         ''' sentences_in_batch x tokens_in_sentence x heads x head_vector '''
         X = X.reshape(X.shape[0], X.shape[1], X.shape[2]*X.shape[3])
         X, out_backprop = self.linears[-1].begin_update(X)
-        return X, None
+
+        def finish_update(grad__BO):
+            grad__query, grad__key, grad__value, grad__real = \
+                attn_backprop(grad__BO)
+            ''' Backpropagate value, query, key '''
+            value_backprop(grad__value)
+            query_backprop(grad__query)
+            key_backprop(grad__key)
+            return out_backprop(grad__real)
+        return X, finish_update
 
     def attn(self, query, key, value, mask=None):
-        ''' Compute attention on (query,key,value) triplet '''
+        ''' Compute attention on (query, key, value) triplet '''
         '''
         query shape:
         0: number of sentences
@@ -211,10 +221,38 @@ class MultiHeadedAttention(Model):
         2: number of heads
         3: vector dimension for each token of each head of each sentence
         '''
+        nB = query.shape[0]
+        query_shape = query.shape
         scores = self.ops.xp.matmul(query.transpose(0, 2, 1, 3),
                                     key.transpose(0, 2, 3, 1) /
                                     math.sqrt(self.nI))
+        scores_before_softmax = scores
         scores = self.ops.softmax(scores)
+        scores_shape = scores.shape
         value = value.transpose(0, 2, 1, 3)
         real_scores = self.ops.xp.matmul(scores, value).transpose(0, 2, 1, 3)
-        return real_scores
+
+        def backprop_attn(grad__BO):
+            ''' Attention three inputs, one output '''
+            ''' Reshapes '''
+            real_scores2d = real_scores.reshape(nB, -1)
+            scores2d = scores.reshape(nB, -1)
+            value2d = value.reshape(nB, -1)
+            query2d = query.reshape(nB, -1)
+            key2d = query.reshape(nB, -1)
+
+            ''' Calculation of grads for last matrix multiplication '''
+            grad__real = Model.ops.gemm(grad__BO, value2d.transpose(1, 0))
+            grad__value = Model.ops.gemm(grad__BO, real_scores2d, trans1=True)
+
+            ''' Calculation of grads for scores softmax '''
+            grad__temp = scores_before_softmax.transpose(nB, -1) * \
+                (1 - scores_before_softmax.transpose(nB, -1))
+            grad__scores = Model.ops.xp.outer(grad__temp, grad__real)
+
+            ''' Calculation of grads for query, key^T multiplication '''
+            grad__query = Model.ops.gemm(grad__scores, key2d)
+            grad__key = Model.ops.gemm(grad__scores, query2d, trans1=True)
+
+            return grad__query, grad__key, grad__value, grad__real
+        return real_scores, backprop_attn
