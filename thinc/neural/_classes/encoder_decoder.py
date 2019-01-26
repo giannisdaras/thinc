@@ -13,29 +13,39 @@ class SeqLinear(Model):
         Model.__init__(self)
         self.nI = nI
         self.nO = nO
-        self.W = Model.ops.xp.random.rand(nO, nI)
+        self.linear = Affine(nI=nI, nO=nO)
 
     def begin_update(self, X, dim=3):
+        nB = X.shape[0]
+        nT = X.shape[1]
         X2d = X.reshape(X.shape[0] * X.shape[1], X.shape[2])
-        Y2d = Model.ops.gemm(X2d, self.W, trans2=True)
+        Y2d, Y2d_backprop = self.linear(X2d)
+        Y = Y2d.reshape(X.shape[0], X.shape[1], -1)
 
-        def backward(dY):
-            ''' todo complete this '''
-            return None
-        if dim == 3:
-            return Y2d.reshape(X.shape[0], X.shape[1], -1), backward
-        else:
-            return Y2d, backward
+        def finish_update(grad__BO):
+            grad__BO = grad__BO.reshape(nB*nT, -1)
+            return Y2d_backprop(grad__BO).reshape(X.shape[0], X.shape[1], -1)
+        return Y, finish_update
 
 
 class SeqSoftmax(Model):
     def __init__(self, nI=300, nO=300):
         Model.__init__(self)
-        self.linear = SeqLinear(nI, nO)
+        self.nI = nI
+        self.nO = nO
+        self.softmax = Softmax(nI=nI, nO=nO)
 
-    def begin_update(self, X):
-        out, linear_backprop = self.linear.begin_update(X)
-        return self.ops.softmax(out), None
+    def begin_update(self, X, dim=3):
+        nB = X.shape[0]
+        nT = X.shape[1]
+        X2d = X.reshape(X.shape[0] * X.shape[1], X.shape[2])
+        Y2d, Y2d_backprop = self.softmax(X2d)
+        Y = Y2d.reshape(X.shape[0], X.shape[1], -1)
+
+        def finish_update(grad__BO):
+            grad__BO = grad__BO.reshape(nB*nT, -1)
+            return Y2d_backprop(grad__BO).reshape(X.shape[0], X.shape[1], -1)
+        return Y, finish_update
 
 
 class EncoderDecoder(Model):
