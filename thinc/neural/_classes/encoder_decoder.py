@@ -16,15 +16,17 @@ class SeqLinear(Model):
         self.linear = Affine(nI=nI, nO=nO)
 
     def begin_update(self, X, dim=3):
+        initial_shape = X.shape
+        final_shape = list(initial_shape[:-1]) + [self.nO]
         nB = X.shape[0]
         nT = X.shape[1]
-        X2d = X.reshape(X.shape[0] * X.shape[1], X.shape[2])
+        X2d = X.reshape(-1, X.shape[2])
         Y2d, Y2d_backprop = self.linear.begin_update(X2d)
-        Y = Y2d.reshape(X.shape[0], X.shape[1], -1)
+        Y = Y2d.reshape(final_shape)
 
         def finish_update(grad__BO):
             grad__BO = grad__BO.reshape(nB*nT, -1)
-            return Y2d_backprop(grad__BO).reshape(X.shape[0], X.shape[1], -1)
+            return Y2d_backprop(grad__BO).reshape(initial_shape)
         return Y, finish_update
 
 
@@ -36,15 +38,17 @@ class SeqSoftmax(Model):
         self.softmax = Softmax(nI=nI, nO=nO)
 
     def begin_update(self, X, dim=3):
+        initial_shape = X.shape
+        final_shape = list(initial_shape[:-1]) + [self.nO]
         nB = X.shape[0]
         nT = X.shape[1]
-        X2d = X.reshape(X.shape[0] * X.shape[1], X.shape[2])
+        X2d = X.reshape(-1, X.shape[2])
         Y2d, Y2d_backprop = self.softmax.begin_update(X2d)
-        Y = Y2d.reshape(X.shape[0], X.shape[1], -1)
+        Y = Y2d.reshape(final_shape)
 
         def finish_update(grad__BO):
-            grad__BO = grad__BO.reshape(nB*nT, -1)
-            return Y2d_backprop(grad__BO).reshape(X.shape[0], X.shape[1], -1)
+            grad__BO = grad__BO.reshape(nB*nT, Y.shape[-1])
+            return Y2d_backprop(grad__BO).reshape(initial_shape)
         return Y, finish_update
 
 
