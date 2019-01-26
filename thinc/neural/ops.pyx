@@ -261,9 +261,6 @@ class Ops(object):
             return new_x
 
     def softmax_sequences(self, Xs, lengths, inplace=False, axis=-1):
-        if Xs.ndim >= 3:
-            raise NotImplementedError(
-                "Softmax currently only supports 2d. ndim=%d" % Xs.ndim)
         # This loses almost no fidelity, and helps the numerical stability.
         Xs = self.xp.clip(Xs, -20., 20.)
         new_x = self.xp.exp(Xs)
