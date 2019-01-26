@@ -19,7 +19,7 @@ class SeqLinear(Model):
         nB = X.shape[0]
         nT = X.shape[1]
         X2d = X.reshape(X.shape[0] * X.shape[1], X.shape[2])
-        Y2d, Y2d_backprop = self.linear(X2d)
+        Y2d, Y2d_backprop = self.linear.begin_update(X2d)
         Y = Y2d.reshape(X.shape[0], X.shape[1], -1)
 
         def finish_update(grad__BO):
@@ -39,7 +39,7 @@ class SeqSoftmax(Model):
         nB = X.shape[0]
         nT = X.shape[1]
         X2d = X.reshape(X.shape[0] * X.shape[1], X.shape[2])
-        Y2d, Y2d_backprop = self.softmax(X2d)
+        Y2d, Y2d_backprop = self.softmax.begin_update(X2d)
         Y = Y2d.reshape(X.shape[0], X.shape[1], -1)
 
         def finish_update(grad__BO):
