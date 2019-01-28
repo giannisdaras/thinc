@@ -15,7 +15,7 @@ class SeqLinear(Model):
         self.nO = nO
         self.linear = Affine(nI=nI, nO=nO)
 
-    def begin_update(self, X, dim=3):
+    def begin_update(self, X, drop=0.1, dim=3):
         initial_shape = X.shape
         final_shape = list(initial_shape[:-1]) + [self.nO]
         nB = X.shape[0]
@@ -128,13 +128,14 @@ class EncoderLayer(Model):
         Model.__init__(self)
         self.heads = heads
         self.model_size = model_size
+        ''' TODO: this layer should be probably made residual '''
         self.attention = MultiHeadedAttention(model_size, heads)
-        self.ffd = SeqLinear(model_size, model_size)
+        self.ffd = Residual(SeqLinear(model_size, model_size))
 
     def begin_update(self, batch, drop=0.1):
         X = batch.X
         X_mask = batch.X_mask
-        X, attn_back = self.attention.begin_update(X, X, X_mask)
+        X, attn_back = self.attention.begin_update((X, X, X_mask))
         X, ffd_back = self.ffd.begin_update(X)
         batch.X = X
 
@@ -148,12 +149,13 @@ class DecoderLayer(Model):
         Model.__init__(self)
         self.heads = heads
         self.model_size = model_size
+        ''' TODO: the following two layers should be probably residuals '''
         self.slf_attention = MultiHeadedAttention(model_size, heads)
         self.other_attention = MultiHeadedAttention(model_size, heads)
         self.ffd = SeqLinear(model_size, model_size)
         self.residuals = [self.slf_attention,
                           self.other_attention,
-                          self.ffd
+                          Residual(self.ffd)
                           ]
 
     def begin_update(self, batch, drop=0.1):
@@ -161,8 +163,8 @@ class DecoderLayer(Model):
         y = batch.y
         X_mask = batch.X_mask
         y_mask = batch.y_mask
-        y, slf_attn_back = self.residuals[0].begin_update(y, y, y_mask)
-        y, other_attn_back = self.residuals[1].begin_update(y, X, X_mask)
+        y, slf_attn_back = self.residuals[0].begin_update((y, y, y_mask))
+        y, other_attn_back = self.residuals[1].begin_update((y, X, X_mask))
         y, ffd_back = self.ffd.begin_update(y)
         batch.y = y
 
@@ -188,7 +190,8 @@ class MultiHeadedAttention(Model):
         self.nK = nI // heads
         self.linears = [SeqLinear(nI, nI) for i in range(4)]
 
-    def begin_update(self, X, y, mask, drop=0.1):
+    def begin_update(self, input, drop=0.1):
+        X, y, mask = input
         nB = X.shape[0]
         query, query_backprop = self.linears[0].begin_update(X)
         query_shape = query.shape
