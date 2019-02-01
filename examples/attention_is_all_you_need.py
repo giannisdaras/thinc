@@ -1,5 +1,5 @@
 from thinc.neural.ops import CupyOps
-from thinc.neural.util import add_eos_bos
+from thinc.neural.util import add_eos_bos, subsequent_mask
 from thinc.neural.util import numericalize, numericalize_vocab
 from thinc.neural._classes.encoder_decoder import EncoderDecoder
 from thinc.neural._classes.static_vectors import StaticVectors
@@ -9,6 +9,7 @@ import spacy
 from thinc.extra.datasets import get_iwslt
 from spacy.lang.en import English
 from spacy.lang.de import German
+import numpy as np
 import pdb
 MODEL_SIZE = 300
 
@@ -33,10 +34,9 @@ def spacy_tokenize(tokenizer, *args):
     heads=("number of heads of the multiheaded attention", "option"),
     dropout=("model dropout", "option"),
     stack=('Number of encoders/decoder in the enc/dec stack.', "option"),
-    german_model=('Path to german model', "option")
+    batch_size=('Batch size for the training', "option")
 )
-def main(heads=6, dropout=0.1, stack=6, german_model=
-         '/home/giannis/vectors/gensim_german_model'):
+def main(heads=6, dropout=0.1, stack=6, batch_size=2):
     if (CupyOps.xp is not None):
         Model.ops = CupyOps()
         Model.Ops = CupyOps
@@ -53,6 +53,10 @@ def main(heads=6, dropout=0.1, stack=6, german_model=
     ''' Read dataset '''
     nlp_en = spacy.load('en_core_web_md')
     nlp_de = spacy.load('de_core_news_md')
+    eos_vector = Model.ops.xp.random.rand(1, MODEL_SIZE)
+    bos_vector = Model.ops.xp.random.rand(1, MODEL_SIZE)
+    nlp_de.vocab.set_vector('<eos>', eos_vector)
+    nlp_de.vocab.set_vector('<bos>', bos_vector)
     en_tokenizer = English().Defaults.create_tokenizer(nlp_en)
     de_tokenizer = German().Defaults.create_tokenizer(nlp_de)
     train_X, dev_X, test_X = spacy_tokenize(en_tokenizer, train_X[:20],
@@ -65,19 +69,24 @@ def main(heads=6, dropout=0.1, stack=6, german_model=
     de_word2indx, de_indx2word = numericalize_vocab(nlp_de)
     with model.begin_training(train_X, train_Y, batch_size=2, nb_epoch=1) as \
             (trainer, optimizer):
+        ''' add beginning and ending of sentence marks '''
+        train_Y = add_eos_bos(train_Y)
         for X, y, X_mask, y_mask in trainer.batch_mask(train_X, train_Y):
+            ''' numericalize text '''
             for indx, _x in enumerate(X):
                 X[indx] = numericalize(en_word2indx, _x)
             for indx, _y in enumerate(y):
                 y[indx] = numericalize(de_word2indx, _y)
+            ''' get text embeddings '''
             X = en_embeddings(Model.ops.asarray(X))
             y = de_embeddings(Model.ops.asarray(y))
             sentence_size = X.shape[1]
+            ''' add position encodings '''
             X = X + X_positions[:sentence_size]
             y = y + X_positions[:sentence_size]
             batch = Batch(X, y, X_mask, y_mask)
             yh, backprop = model.begin_update(batch, drop=trainer.dropout)
-            pdb.set_trace()
+
 
 if __name__ == '__main__':
     plac.call(main)
