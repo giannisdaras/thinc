@@ -15,7 +15,7 @@ class SeqLinear(Model):
         self.nO = nO
         self.linear = Affine(nI=nI, nO=nO)
 
-    def begin_update(self, X, drop=0.1, dim=3):
+    def begin_update(self, X, drop=0.0, dim=3):
         initial_shape = X.shape
         final_shape = list(initial_shape[:-1]) + [self.nO]
         nB = X.shape[0]
@@ -72,7 +72,7 @@ class EncoderDecoder(Model):
         self.dec = Decoder(self.heads, self.model_size, self.stack)
         self.output_layer = SeqSoftmax(model_size, tgt_vocab_size)
 
-    def begin_update(self, batch, drop=0.1):
+    def begin_update(self, batch, drop=0.0):
         '''
         A batch object flows through the network. It contains input, output and
         corresponding masks. Input changes while the object travels through
@@ -101,7 +101,7 @@ class Encoder(Model):
             self.encoder_stack = chain(self.encoder_stack,
                                        EncoderLayer(heads, model_size))
 
-    def begin_update(self, batch, drop=0.1):
+    def begin_update(self, batch, drop=0.0):
         batch, encoders_backprop = self.encoder_stack.begin_update(batch)
         return batch, encoders_backprop
 
@@ -117,7 +117,7 @@ class Decoder(Model):
             self.decoder_stack = chain(self.decoder_stack,
                                        DecoderLayer(heads, model_size))
 
-    def begin_update(self, batch, drop=0.1):
+    def begin_update(self, batch, drop=0.0):
         batch, decoders_backprop = self.decoder_stack.begin_update(batch)
         print('Decoder stack computed output')
         return batch, decoders_backprop
@@ -132,7 +132,7 @@ class EncoderLayer(Model):
         self.attention = MultiHeadedAttention(model_size, heads)
         self.ffd = Residual(SeqLinear(model_size, model_size))
 
-    def begin_update(self, batch, drop=0.1):
+    def begin_update(self, batch, drop=0.0):
         X = batch.X
         X_mask = batch.X_mask
         X, attn_back = self.attention.begin_update((X, X, X_mask))
@@ -158,7 +158,7 @@ class DecoderLayer(Model):
                           Residual(self.ffd)
                           ]
 
-    def begin_update(self, batch, drop=0.1):
+    def begin_update(self, batch, drop=0.0):
         X = batch.X
         y = batch.y
         X_mask = batch.X_mask
@@ -190,7 +190,7 @@ class MultiHeadedAttention(Model):
         self.nK = nI // heads
         self.linears = [SeqLinear(nI, nI) for i in range(4)]
 
-    def begin_update(self, input, drop=0.1):
+    def begin_update(self, input, drop=0.0):
         X, y, mask = input
         nB = X.shape[0]
         query, query_backprop = self.linears[0].begin_update(X)
