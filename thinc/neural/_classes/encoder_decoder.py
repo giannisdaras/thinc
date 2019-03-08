@@ -316,3 +316,60 @@ class MultiHeadedAttention(Model):
             dQ, dK = get_dQ_dK(dS0)
             return dQ, dK, dV
         return S2, backprop_attn
+    
+    def _attn1(self, Q0, K0):
+        # nB: #Sentences, nL: #Length, nH: #Heads, nD: #Dimensions
+        nB, nL, nL, nD = Q0.shape
+        # Shape of Q0: (nB, nL, nH, nD)
+        # Shape of K0: (nB, nL, nH, nD)
+        Q1 = Q0.transpose(0, 2, 1, 3).reshape(nB*nH, nL, nD) # --> (nB*nH, nL, nD)
+        K1 = K0.transpose(0, 2, 3, 1).reshape(nB*nH, nD, nL) # --> (nB*nH, nD, nL)
+        K2 = K1 / math.sqrt(self.nI)
+        # (nB*nH, nL, nD) @ (nB*nH, nD, nL) --> (nB*nH, nL, nL)
+        S = self.ops.xp.matmul(Q1, K2)
+        
+        def backprop_attn1(dS):
+            # (nB*nH, nL, nL) @ (nB*nH, nD, nL).T --> (nB*nH, nL, nD)
+            # To test this, set some values in dS to nan, and check they propagate how we expect
+            # Also can compare against an autograd solution.
+            dQ1 = self.ops.xp.matmul(dS, K2.transpose((0, 2, 1))
+            # (nB*nH, nL, nD).T @ (nB*nH, nL, nL) --> (nB*nH, nD, nL)
+            dK2 = self.ops.xp.matmul(Q1.transpose((0, 2, 1), dS)
+            dK1 = dK2 / math.sqrt(self.nI)
+            dK0 = dK1.reshape((nB, nH, nD, nL)).transpose((0, 2, 3, 1))
+            dQ0 = dQ1.reshape((nB, nH, nL, nD)).transpose((0, 2, 1, 3))
+            return dQ0, dK0
+        return S.reshape((nB, nH, nL, nL))
+
+    def _attn2(self, S0):
+        # Softmax and backprop
+                                     
+def _attn3(self, S0, V0):
+    # I think this is the same as attn1? Should use same function.
+    nB, nH, nL, nL = S1.shape
+    V1 = V0.reshape((nB*nH, nL, nD))
+    S1 = S0.reshape((nB*nH, nL, nL))
+    # S0: (nB, nH, nL, nL)
+    # S1: (nB*nH, nL, nL)
+    # V1:  (nB*nH, nL, nD)
+    # S2: (nB*nH, nL, nD)
+    # S3: (nB, nL, nH, nD)
+    #
+    # (nB*nH, nL, nL) @ (nB*nH, nL, nD) --> (nB*nH, nL, nD)
+    S2 = self.ops.xp.matmul(S1, V1)
+    S3 = S2.reshape((nB, nH, nL, nD)).transpose((0, 2, 1, 3))
+
+    def backprop_attn3(dS3):
+        # (nB, nL, nH, nD) --> (nB*nH, nL, nD)
+        dS2 = dS3.tranpose((0, 2, 1, 3)).reshape((nB*nH, nH, nD))
+        # (nB*nH, nL, nD) @ (nB*nH, nL, nD).T --> (nB*nH, nL, nL)
+        dS1 = self.ops.xp.matmul(dS2, V1.transpose((0, 2, 1)))
+        # (nB*nH, nL, nL).T @ (nB*nH, nL, nD) --> (nB*nH, nL, nD)
+        dV1 = self.ops.xp.matmul(S1.transpose((0, 2, 1), dS2)
+        dS0 = dS1.reshape((nB, nH, nL, nL)
+        dV0 = dV1.reshape((nB, nL, nL, nD))
+        return dS0, dV0
+
+    return S3
+    
+           
