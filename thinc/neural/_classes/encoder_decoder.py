@@ -172,6 +172,40 @@ class DecoderLayer(Model):
             return slf_attn_back(other_attn_back(ffd_back(grad__BO)))
         return batch, finish_update
 
+    
+def DecoderLayer(x_attn, y_attn, ffd):
+    # This separates the creation of the layers (x_attn, y_attn, ffd) from
+    # how we compose them. This makes the function a bit less noisy.
+    def decoder_begin_update(batch, drop=0.0):
+        x, y0 = batch.x, batch.y
+        y1, get_dx_dy0 = x_attn.begin_update((x, y0))
+        y2, get_dy1_dx = y_attn.begin_update((y1, x))
+        y3, get_dy2 = ffd.begin_update(y2)
+        
+        def decoder_finish_update(dx_dy3, sgd=None):
+            dx, dy3 = dx_dy3
+            dy2 = get_dy2(dy3, sgd=sgd)
+            dy1_dx = get_dy1_dx(dy2, sgd=sgd)
+            dx_dy0 = get_dx_dy0(dy1, sgd=sgd)
+            # Gradient of x is sum of the input gradient,
+            # and the gradients from the two attn operations.
+            dx += dx_dy0[0]
+            dx += dy1_dx[1]
+            # dy0 is only used as input to the x_attn, so we
+            # don't sum the gradient for it.
+            dy0 = dx_dy0[1]
+            return dx, dy0
+        batch.x = x
+        batch.y = y3
+        return batch, decoder_finish_update
+    # The "thinc.api.wrap" function sets up the Model class correctly, which is
+    # a bit fiddly to do in the __init__ at the moment (sorry).
+    # The main thing is it adds the layers to the model._layers
+    # list...Which is necessary for serialisation and other things,
+    # but also quite non obvious (again, sorry!).
+    self = wrap(decoder_begin_update, x_attn, y_attn, ffd)
+    return self
+
 
 class MultiHeadedAttention(Model):
     ''' This class implements multiheaded attention. It can be used for self
@@ -259,3 +293,26 @@ class MultiHeadedAttention(Model):
 
             return grad__query, grad__key, grad__value, grad__real
         return real_scores, backprop_attn
+
+    
+    def attn(self, Q, K, V, mask=None):
+        ''' Compute attention on (query, key, value) triplet '''
+        '''
+        query shape:
+        0: number of sentences
+        1: number of tokens in the sentence
+        2: number of heads
+        3: vector dimension for each token of each head of each sentence
+        '''
+        
+        S0, get_dQ_dK = self._attn1(Q, K)
+        S1, get_dS0 = self._attn2(S0)
+        S2, get_dS1_dV = self._attn3(S1, V)
+
+        def backprop_attn(dS2):
+            ''' Attention three inputs, one output '''
+            dS1, dV = get_dS1_dV(dS2)
+            dS0 = get_dS0(dS1)
+            dQ, dK = get_dQ_dK(dS0)
+            return dQ, dK, dV
+        return S2, backprop_attn
