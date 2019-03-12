@@ -145,66 +145,34 @@ class EncoderLayer(Model):
 
 
 class DecoderLayer(Model):
-    def __init__(self, heads, model_size):
+    def __init__(self, nH, nM):
         Model.__init__(self)
-        self.heads = heads
-        self.model_size = model_size
+        self.nH = nH
+        self.nM = nM
         ''' TODO: the following two layers should be probably residuals '''
-        self.slf_attention = MultiHeadedAttention(model_size, heads)
-        self.other_attention = MultiHeadedAttention(model_size, heads)
-        self.ffd = SeqLinear(model_size, model_size)
-        self.residuals = [self.slf_attention,
-                          self.other_attention,
-                          Residual(self.ffd)
-                          ]
+        self.x_attn = MultiHeadedAttention(nM, nH)
+        self.y_attn = MultiHeadedAttention(nM, nH)
+        self.ffd = SeqLinear(nM, nM)
+        self.residuals = [self.x_attn, self.y_attn, Residual(self.ffd)]
 
     def begin_update(self, batch, drop=0.0):
-        X = batch.X
-        y = batch.y
+        x0 = batch.X
+        y0 = batch.y
         X_mask = batch.X_mask
         y_mask = batch.y_mask
-        y, slf_attn_back = self.residuals[0].begin_update((y, y, y_mask))
-        y, other_attn_back = self.residuals[1].begin_update((y, X, X_mask))
-        y, ffd_back = self.ffd.begin_update(y)
-        batch.y = y
-
-        def finish_update(grad__BO):
-            return slf_attn_back(other_attn_back(ffd_back(grad__BO)))
-        return batch, finish_update
-
-
-def DecoderLayer(x_attn, y_attn, ffd):
-    # This separates the creation of the layers (x_attn, y_attn, ffd) from
-    # how we compose them. This makes the function a bit less noisy.
-    def decoder_begin_update(batch, drop=0.0):
-        x, y0 = batch.x, batch.y
-        y1, get_dx_dy0 = x_attn.begin_update((x, y0))
-        y2, get_dy1_dx = y_attn.begin_update((y1, x))
-        y3, get_dy2 = ffd.begin_update(y2)
-
-        def decoder_finish_update(dx_dy3, sgd=None):
-            dx, dy3 = dx_dy3
-            dy2 = get_dy2(dy3, sgd=sgd)
-            dy1_dx = get_dy1_dx(dy2, sgd=sgd)
-            dx_dy0 = get_dx_dy0(dy1, sgd=sgd)
-            # Gradient of x is sum of the input gradient,
-            # and the gradients from the two attn operations.
-            dx += dx_dy0[0]
-            dx += dy1_dx[1]
-            # dy0 is only used as input to the x_attn, so we
-            # don't sum the gradient for it.
-            dy0 = dx_dy0[1]
-            return dx, dy0
-        batch.x = x
+        y1, get_dy00_dy01 = self.residuals[0].begin_update((y0, y0, y_mask))
+        y2, get_dy1_dx0 = self.residuals[1].begin_update((y1, x0, X_mask))
+        y3, get_dy2 = self.ffd.begin_update(y2)
         batch.y = y3
-        return batch, decoder_finish_update
-    # The "thinc.api.wrap" function sets up the Model class correctly, which is
-    # a bit fiddly to do in the __init__ at the moment (sorry).
-    # The main thing is it adds the layers to the model._layers
-    # list...Which is necessary for serialisation and other things,
-    # but also quite non obvious (again, sorry!).
-    self = wrap(decoder_begin_update, x_attn, y_attn, ffd)
-    return self
+
+        def finish_update(dy3):
+            dy2 = get_dy2(dy3)
+            dy1, dx0 = get_dy1_dx0(dy2)
+            dy00, dy01 = get_dy00_dy01(dy1)
+            dy0 = dy00 + dy01
+            return (dx0, dy0)
+
+        return batch, finish_update
 
 
 class MultiHeadedAttention(Model):
