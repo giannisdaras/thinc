@@ -53,24 +53,24 @@ class SeqSoftmax(Model):
 
 
 class EncoderDecoder(Model):
-    def __init__(self, stack=6, heads=6, model_size=300, tgt_vocab_size=10000):
+    def __init__(self, nS=6, nH=6, nM=300, nTGT=10000):
         '''
         EncoderDecoder consists of an encoder stack, a decoder stack and an
         output layer which is a linear + softmax.
         Parameters explanation:
-            stack: the number of encoders/decoders in the stack
-            heads: the number of heads in the multiheaded attention
-            model_size: the token's embedding size
-            tgt_vocab_size: the number of unique words in output vocabulary
+            nS: the number of encoders/decoders in the stack
+            nH: the number of heads in the multiheaded attention
+            nM: the token's embedding size
+            nTGT: the number of unique words in output vocabulary
         '''
         Model.__init__(self)
-        self.stack = stack
-        self.heads = heads
-        self.model_size = model_size
-        self.tgt_vocab_size = tgt_vocab_size
-        self.enc = Encoder(self.heads, self.model_size, self.stack)
-        self.dec = Decoder(self.heads, self.model_size, self.stack)
-        self.output_layer = SeqSoftmax(model_size, tgt_vocab_size)
+        self.nS = nS
+        self.nH = nH
+        self.nM = nM
+        self.nTGT = nTGT
+        self.enc = Encoder(self.nH, self.nM, self.nS)
+        self.dec = Decoder(self.nH, self.nM, self.nS)
+        self.output_layer = SeqSoftmax(nM, nTGT)
 
     def begin_update(self, batch, drop=0.0):
         '''
@@ -91,15 +91,14 @@ class EncoderDecoder(Model):
 
 
 class Encoder(Model):
-    def __init__(self, heads, model_size, stack):
+    def __init__(self, nH, nM, nS):
         Model.__init__(self)
-        self.heads = heads
-        self.model_size = model_size
-        self.stack = stack
-        self.encoder_stack = EncoderLayer(heads, model_size)
-        for i in range(self.stack - 1):
-            self.encoder_stack = chain(self.encoder_stack,
-                                       EncoderLayer(heads, model_size))
+        self.nH = nH
+        self.nM = nM
+        self.nS = nS
+        self.encoder_stack = EncoderLayer(nH, nM)
+        for i in range(nS - 1):
+            self.encoder_stack = chain(self.encoder_stack, EncoderLayer(nH, nM))
 
     def begin_update(self, batch, drop=0.0):
         batch, encoders_backprop = self.encoder_stack.begin_update(batch)
@@ -107,19 +106,18 @@ class Encoder(Model):
 
 
 class Decoder(Model):
-    def __init__(self, heads, model_size, stack):
+    def __init__(self, nH, nM, nS):
+        # nS: stack size
         Model.__init__(self)
-        self.heads = heads
-        self.model_size = model_size
-        self.stack = stack
-        self.decoder_stack = DecoderLayer(heads, model_size)
+        self.nH = nH
+        self.nM = nM
+        self.nS = nS
+        self.decoder_stack = DecoderLayer(nH, nM)
         for i in range(self.stack - 1):
-            self.decoder_stack = chain(self.decoder_stack,
-                                       DecoderLayer(heads, model_size))
+            self.decoder_stack = chain(self.decoder_stack, DecoderLayer(nH, nM))
 
     def begin_update(self, batch, drop=0.0):
         batch, decoders_backprop = self.decoder_stack.begin_update(batch)
-        print('Decoder stack computed output')
         return batch, decoders_backprop
 
 
