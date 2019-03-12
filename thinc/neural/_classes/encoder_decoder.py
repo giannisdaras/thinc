@@ -172,7 +172,7 @@ class DecoderLayer(Model):
             return slf_attn_back(other_attn_back(ffd_back(grad__BO)))
         return batch, finish_update
 
-    
+
 def DecoderLayer(x_attn, y_attn, ffd):
     # This separates the creation of the layers (x_attn, y_attn, ffd) from
     # how we compose them. This makes the function a bit less noisy.
@@ -181,7 +181,7 @@ def DecoderLayer(x_attn, y_attn, ffd):
         y1, get_dx_dy0 = x_attn.begin_update((x, y0))
         y2, get_dy1_dx = y_attn.begin_update((y1, x))
         y3, get_dy2 = ffd.begin_update(y2)
-        
+
         def decoder_finish_update(dx_dy3, sgd=None):
             dx, dy3 = dx_dy3
             dy2 = get_dy2(dy3, sgd=sgd)
@@ -217,94 +217,54 @@ class MultiHeadedAttention(Model):
     For the time being; key, query and value matrices are supposed to have the
     same length.
     '''
-    def __init__(self, nI=300, heads=6):
+    def __init__(self, nM=300, nH=6):
         Model.__init__(self)
-        self.heads = heads
-        self.nI = nI  # model size: the length of the embeddings
-        self.nK = nI // heads
-        self.linears = [SeqLinear(nI, nI) for i in range(4)]
+        self.nH = nH
+        self.nM = nM  # model size: the length of the embeddings
+        self.nD = nM // nH
+        self.linears = [SeqLinear(nM, nM) for i in range(4)]
 
     def begin_update(self, input, drop=0.0):
-        X, y, mask = input
-        nB = X.shape[0]
-        query, query_backprop = self.linears[0].begin_update(X)
-        query_shape = query.shape
-        query = query.reshape(nB, -1, self.heads, self.nK)
-        key, key_backprop = self.linears[1].begin_update(y)
-        key = key.reshape(nB, -1, self.heads, self.nK)
-        value, value_backprop = self.linears[2].begin_update(y)
-        value = value.reshape(nB, -1, self.heads, self.nK)
-        X, attn_backprop = self.attn(query, key, value, mask=mask)
-        ''' sentences_in_batch x tokens_in_sentence x heads x head_vector '''
-        X = X.reshape(X.shape[0], X.shape[1], X.shape[2]*X.shape[3])
-        X, out_backprop = self.linears[-1].begin_update(X)
+        x0, y0, mask = input
+        ''' Shapes '''
+        # x0: nB, nL, nM
+        # q0: nB, nL, nM
+        # k0: nB, nL, nM
+        # v0: nB, nL, nM
+        # q1: nB, nL, nH, nD
+        # k1: nB, nL, nH, nD
+        # v1: nB, nL, nH, nD
+        # x1: nB, nL, nH, nD
+        # x2: nB, nL, nM
+        # x3: nB, nL, nM
+        nB, nL, nD, nH = x0.shape[0], x0.shape[1], self.nD, self.nH
+        q0, get_dx0 = self.linears[0].begin_update(x0)
+        q1 = q0.reshape(nB, -1, self.heads, self.nK)
+        k0, get_dy0_1 = self.linears[1].begin_update(y0)
+        k1 = k0.reshape(nB, -1, self.heads, self.nK)
+        v0, get_dy0_2 = self.linears[2].begin_update(y0)
+        v1 = v0.reshape(nB, -1, self.heads, self.nK)
+        x1, get_dq1_dk1_dv1 = self.attn(q1, k1, v1, mask=mask)
+        x2 = x1.reshape(x1.shape[0], x1.shape[1], x1.shape[2]*x1.shape[3])
+        x3, get_dx2 = self.linears[-1].begin_update(x2)
 
-        def finish_update(grad__BO):
-            grad__query, grad__key, grad__value, grad__real = \
-                attn_backprop(grad__BO)
-            ''' Backpropagate value, query, key '''
-            value_backprop(grad__value)
-            query_backprop(grad__query)
-            key_backprop(grad__key)
-            return out_backprop(grad__real)
-        return X, finish_update
+        def finish_update(dx3):
+            dx2 = get_dx2(dx3)
+            dx1 = dx2.reshape(nB, nL, nH, nD)
+            dq1, dk1, dv1 = get_dq1_dk1_dv1(dx1)
+            dv0 = dv1.reshape(nB, nL, nH, nD)
+            dk0 = dk1.reshape(nB, nL, nH, nD)
+            dq0 = dq1.reshape(nB, nL, nH, nD)
+            dy0 = get_dy0_2(dv0)
+            dy0 += get_dy0_1(dk0)
+            dx0 = get_dx0(dq0)
+            return (dx0, dy0)
 
-    def attn(self, query, key, value, mask=None):
-        ''' Compute attention on (query, key, value) triplet '''
-        '''
-        query shape:
-        0: number of sentences
-        1: number of tokens in the sentence
-        2: number of heads
-        3: vector dimension for each token of each head of each sentence
-        '''
-        nB = query.shape[0]
-        query_shape = query.shape
-        scores = self.ops.xp.matmul(query.transpose(0, 2, 1, 3),
-                                    key.transpose(0, 2, 3, 1) /
-                                    math.sqrt(self.nI))
-        scores_before_softmax = scores
-        scores = self.ops.softmax(scores)
-        scores_shape = scores.shape
-        value = value.transpose(0, 2, 1, 3)
-        real_scores = self.ops.xp.matmul(scores, value).transpose(0, 2, 1, 3)
+        return x3, finish_update
 
-        def backprop_attn(grad__BO):
-            ''' Attention three inputs, one output '''
-            ''' Reshapes '''
-            real_scores2d = real_scores.reshape(nB, -1)
-            scores2d = scores.reshape(nB, -1)
-            value2d = value.reshape(nB, -1)
-            query2d = query.reshape(nB, -1)
-            key2d = query.reshape(nB, -1)
-
-            ''' Calculation of grads for last matrix multiplication '''
-            grad__real = Model.ops.gemm(grad__BO, value2d.transpose(1, 0))
-            grad__value = Model.ops.gemm(grad__BO, real_scores2d, trans1=True)
-
-            ''' Calculation of grads for scores softmax '''
-            grad__temp = scores_before_softmax.transpose(nB, -1) * \
-                (1 - scores_before_softmax.transpose(nB, -1))
-            grad__scores = Model.ops.xp.outer(grad__temp, grad__real)
-
-            ''' Calculation of grads for query, key^T multiplication '''
-            grad__query = Model.ops.gemm(grad__scores, key2d)
-            grad__key = Model.ops.gemm(grad__scores, query2d, trans1=True)
-
-            return grad__query, grad__key, grad__value, grad__real
-        return real_scores, backprop_attn
-
-    
     def attn(self, Q, K, V, mask=None):
         ''' Compute attention on (query, key, value) triplet '''
-        '''
-        query shape:
-        0: number of sentences
-        1: number of tokens in the sentence
-        2: number of heads
-        3: vector dimension for each token of each head of each sentence
-        '''
-        
+        # query shape: nB, nL, nH, nD
         S0, get_dQ_dK = self._attn1(Q, K)
         S1, get_dS0 = self._attn2(S0)
         S2, get_dS1_dV = self._attn3(S1, V)
@@ -316,60 +276,71 @@ class MultiHeadedAttention(Model):
             dQ, dK = get_dQ_dK(dS0)
             return dQ, dK, dV
         return S2, backprop_attn
-    
+
     def _attn1(self, Q0, K0):
         # nB: #Sentences, nL: #Length, nH: #Heads, nD: #Dimensions
-        nB, nL, nL, nD = Q0.shape
+        nB, nL, nH, nD = Q0.shape
         # Shape of Q0: (nB, nL, nH, nD)
         # Shape of K0: (nB, nL, nH, nD)
-        Q1 = Q0.transpose(0, 2, 1, 3).reshape(nB*nH, nL, nD) # --> (nB*nH, nL, nD)
-        K1 = K0.transpose(0, 2, 3, 1).reshape(nB*nH, nD, nL) # --> (nB*nH, nD, nL)
+
+        # --> (nB*nH, nL, nD)
+        Q1 = Q0.transpose(0, 2, 1, 3).reshape(nB*nH, nL, nD)
+        # --> (nB*nH, nD, nL)
+        K1 = K0.transpose(0, 2, 3, 1).reshape(nB*nH, nD, nL)
         K2 = K1 / math.sqrt(self.nI)
         # (nB*nH, nL, nD) @ (nB*nH, nD, nL) --> (nB*nH, nL, nL)
         S = self.ops.xp.matmul(Q1, K2)
-        
+
         def backprop_attn1(dS):
             # (nB*nH, nL, nL) @ (nB*nH, nD, nL).T --> (nB*nH, nL, nD)
-            # To test this, set some values in dS to nan, and check they propagate how we expect
+            # To test this, set some values in dS to nan, and check they
+            # propagate how we expect.
             # Also can compare against an autograd solution.
-            dQ1 = self.ops.xp.matmul(dS, K2.transpose((0, 2, 1))
+            dQ1 = self.ops.xp.matmul(dS, K2.transpose(0, 2, 1))
             # (nB*nH, nL, nD).T @ (nB*nH, nL, nL) --> (nB*nH, nD, nL)
-            dK2 = self.ops.xp.matmul(Q1.transpose((0, 2, 1), dS)
+            dK2 = self.ops.xp.matmul(Q1.transpose((0, 2, 1), dS))
             dK1 = dK2 / math.sqrt(self.nI)
-            dK0 = dK1.reshape((nB, nH, nD, nL)).transpose((0, 2, 3, 1))
-            dQ0 = dQ1.reshape((nB, nH, nL, nD)).transpose((0, 2, 1, 3))
+            dK0 = dK1.reshape((nB, nH, nD, nL)).transpose(0, 2, 3, 1)
+            dQ0 = dQ1.reshape((nB, nH, nL, nD)).transpose(0, 2, 1, 3)
             return dQ0, dK0
-        return S.reshape((nB, nH, nL, nL))
+        return S.reshape((nB, nH, nL, nL)), backprop_attn1
 
     def _attn2(self, S0):
-        # Softmax and backprop
-                                     
-def _attn3(self, S0, V0):
-    # I think this is the same as attn1? Should use same function.
-    nB, nH, nL, nL = S1.shape
-    V1 = V0.reshape((nB*nH, nL, nD))
-    S1 = S0.reshape((nB*nH, nL, nL))
-    # S0: (nB, nH, nL, nL)
-    # S1: (nB*nH, nL, nL)
-    # V1:  (nB*nH, nL, nD)
-    # S2: (nB*nH, nL, nD)
-    # S3: (nB, nL, nH, nD)
-    #
-    # (nB*nH, nL, nL) @ (nB*nH, nL, nD) --> (nB*nH, nL, nD)
-    S2 = self.ops.xp.matmul(S1, V1)
-    S3 = S2.reshape((nB, nH, nL, nD)).transpose((0, 2, 1, 3))
+        ''' A simple softmax to the scores '''
+        # S0: nB, nH, nL, nL
+        # S1: nB, nH, nL, nL
+        S1 = self.ops.softmax(S0)
 
-    def backprop_attn3(dS3):
-        # (nB, nL, nH, nD) --> (nB*nH, nL, nD)
-        dS2 = dS3.tranpose((0, 2, 1, 3)).reshape((nB*nH, nH, nD))
-        # (nB*nH, nL, nD) @ (nB*nH, nL, nD).T --> (nB*nH, nL, nL)
-        dS1 = self.ops.xp.matmul(dS2, V1.transpose((0, 2, 1)))
-        # (nB*nH, nL, nL).T @ (nB*nH, nL, nD) --> (nB*nH, nL, nD)
-        dV1 = self.ops.xp.matmul(S1.transpose((0, 2, 1), dS2)
-        dS0 = dS1.reshape((nB, nH, nL, nL)
-        dV0 = dV1.reshape((nB, nL, nL, nD))
-        return dS0, dV0
+        def backprop_attn2(dS1):
+            dS0 = self.ops.xp.matmul(dS1, self.ops.xp.matmul(S0, (1 - S0)))
+            return dS0
+        return S1, backprop_attn2
 
-    return S3
-    
-           
+    def _attn3(self, S0, V0):
+        ''' Multiplication with values '''
+        nB, nH, nL, nL = S0.shape
+        nD = V0.shape[-1]
+        V1 = V0.reshape((nB*nH, nL, nD))
+        S1 = S0.reshape((nB*nH, nL, nL))
+        # S0: (nB, nH, nL, nL)
+        # S1: (nB*nH, nL, nL)
+        # V1:  (nB*nH, nL, nD)
+        # S2: (nB*nH, nL, nD)
+        # S3: (nB, nL, nH, nD)
+
+        # (nB*nH, nL, nL) @ (nB*nH, nL, nD) --> (nB*nH, nL, nD)
+        S2 = self.ops.xp.matmul(S1, V1)
+        S3 = S2.reshape((nB, nH, nL, nD)).transpose(0, 2, 1, 3)
+
+        def backprop_attn3(dS3):
+            # (nB, nL, nH, nD) --> (nB*nH, nL, nD)
+            dS2 = dS3.tranpose(0, 2, 1, 3).reshape((nB*nH, nH, nD))
+            # (nB*nH, nL, nD) @ (nB*nH, nL, nD).T --> (nB*nH, nL, nL)
+            dS1 = self.ops.xp.matmul(dS2, V1.transpose(0, 2, 1))
+            # (nB*nH, nL, nL).T @ (nB*nH, nL, nD) --> (nB*nH, nL, nD)
+            dV1 = self.ops.xp.matmul(S1.transpose(0, 2, 1), dS2)
+            dS0 = dS1.reshape((nB, nH, nL, nL))
+            dV0 = dV1.reshape((nB, nL, nL, nD))
+            return dS0, dV0
+
+        return S3, backprop_attn3
