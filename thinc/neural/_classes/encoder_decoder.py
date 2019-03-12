@@ -113,7 +113,7 @@ class Decoder(Model):
         self.nM = nM
         self.nS = nS
         self.decoder_stack = DecoderLayer(nH, nM)
-        for i in range(self.stack - 1):
+        for i in range(self.nS - 1):
             self.decoder_stack = chain(self.decoder_stack, DecoderLayer(nH, nM))
 
     def begin_update(self, batch, drop=0.0):
