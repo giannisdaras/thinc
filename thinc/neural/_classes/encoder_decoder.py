@@ -124,23 +124,26 @@ class Decoder(Model):
 
 
 class EncoderLayer(Model):
-    def __init__(self, heads, model_size):
+    def __init__(self, nH, nM):
         Model.__init__(self)
-        self.heads = heads
-        self.model_size = model_size
+        self.nH = nH
+        self.nM = nM
         ''' TODO: this layer should be probably made residual '''
-        self.attention = MultiHeadedAttention(model_size, heads)
-        self.ffd = Residual(SeqLinear(model_size, model_size))
+        self.x_attn = MultiHeadedAttention(nM, nH)
+        self.ffd = Residual(SeqLinear(nM, nM))
 
     def begin_update(self, batch, drop=0.0):
-        X = batch.X
+        x0 = batch.X
         X_mask = batch.X_mask
-        X, attn_back = self.attention.begin_update((X, X, X_mask))
-        X, ffd_back = self.ffd.begin_update(X)
-        batch.X = X
+        x1, get_dx00_dx01 = self.attention.begin_update((x0, x0, X_mask))
+        x2, get_dx1 = self.ffd.begin_update(x1)
+        batch.X = x2
 
-        def finish_update(grad__BO):
-            return attn_back(ffd_back(grad__BO))
+        def finish_update(dx2):
+            dx1 = get_dx1(dx2)
+            dx00, dx01 = get_dx00_dx01(dx1)
+            dx = dx00 + dx01
+            return dx
         return batch, finish_update
 
 
