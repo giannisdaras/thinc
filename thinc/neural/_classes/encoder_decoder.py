@@ -25,7 +25,7 @@ class SeqLinear(Model):
         Y2d, Y2d_backprop = self.linear.begin_update(X2d)
         Y = Y2d.reshape(final_shape)
 
-        def finish_update(grad__BO):
+        def finish_update(grad__BO, sgd=None):
             grad__BO = grad__BO.reshape(nB*nT, -1)
             return Y2d_backprop(grad__BO).reshape(initial_shape)
         return Y, finish_update
@@ -49,7 +49,7 @@ class SeqSoftmax(Model):
         # Y: nB, nL, nO
         Y = Y2d.reshape(nB, nL, nO)
 
-        def finish_update(dY):
+        def finish_update(dY, sgd=None):
             dY2d = dY.reshape(nB*nL, nO)
             dX2d = Y2d_backprop(dY2d)
             dX = dX2d.reshape(nB, nL, nI)
@@ -92,7 +92,7 @@ class EncoderDecoder(Model):
         y2 = b2.y
         y3, get_dy2 = self.proj.begin_update(y2)
 
-        def finish_update(dy3):
+        def finish_update(dy3, sgd=None):
             dy2 = get_dy2(dy3)
             _ = Model.ops.xp.zeros(dy2.shape, dtype=Model.ops.xp.float32)
             dx1, dy1 = get_dx1_dy1((_, dy2))
@@ -136,7 +136,7 @@ class Decoder(Model):
     def begin_update(self, b0, drop=0.0):
         b1, get_dx_dy = self.dec_stack.begin_update(b0)
 
-        def finish_update(grad__BO):
+        def finish_update(grad__BO, sgd=None):
             dX, dY = grad__BO
             return get_dx_dy((dX, dY,))
 
@@ -159,7 +159,7 @@ class EncoderLayer(Model):
         x2, get_dx1 = self.ffd.begin_update(x1)
         batch.X = x2
 
-        def finish_update(dx2):
+        def finish_update(dx2, sgd=None):
             dx1 = get_dx1(dx2)
             dx00, dx01 = get_dx00_dx01(dx1)
             dx = dx00 + dx01
@@ -188,7 +188,7 @@ class DecoderLayer(Model):
         y3, get_dy2 = self.ffd.begin_update(y2)
         batch.y = y3
 
-        def finish_update(grad__BO):
+        def finish_update(grad__BO, sgd=None):
             ''' TODO: we have to discuss if this is actually correct
             The loss function regards only the EncoderDecoder output, and not
             the EncoderDecoder input. But actually, we need to calculate
@@ -252,7 +252,7 @@ class MultiHeadedAttention(Model):
         x2 = x1.reshape(x1.shape[0], x1.shape[1], x1.shape[2]*x1.shape[3])
         x3, get_dx2 = self.linears[-1].begin_update(x2)
 
-        def finish_update(dx3):
+        def finish_update(dx3, sgd=None):
             dx2 = get_dx2(dx3)
             dx1 = dx2.reshape(nB, nL, nH, nD)
             dq1, dk1, dv1 = get_dq1_dk1_dv1(dx1)
