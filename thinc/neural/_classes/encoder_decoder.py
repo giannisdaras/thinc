@@ -133,7 +133,7 @@ class EncoderLayer(Model):
     def begin_update(self, batch, drop=0.0):
         x0 = batch.X
         X_mask = batch.X_mask
-        x1, get_dx00_dx01 = self.attention.begin_update((x0, x0, X_mask))
+        x1, get_dx00_dx01 = self.x_attn.begin_update((x0, x0, X_mask))
         x2, get_dx1 = self.ffd.begin_update(x1)
         batch.X = x2
 
@@ -208,12 +208,14 @@ class MultiHeadedAttention(Model):
         # x3: nB, nL, nM
         nB, nL, nD, nH = x0.shape[0], x0.shape[1], self.nD, self.nH
         q0, get_dx0 = self.linears[0].begin_update(x0)
-        q1 = q0.reshape(nB, -1, self.heads, self.nK)
+        q1 = q0.reshape(nB, -1, self.nH, self.nD)
         k0, get_dy0_1 = self.linears[1].begin_update(y0)
-        k1 = k0.reshape(nB, -1, self.heads, self.nK)
+        k1 = k0.reshape(nB, -1, self.nH, self.nD)
         v0, get_dy0_2 = self.linears[2].begin_update(y0)
-        v1 = v0.reshape(nB, -1, self.heads, self.nK)
+        v1 = v0.reshape(nB, -1, self.nH, self.nD)
+
         x1, get_dq1_dk1_dv1 = self.attn(q1, k1, v1, mask=mask)
+
         x2 = x1.reshape(x1.shape[0], x1.shape[1], x1.shape[2]*x1.shape[3])
         x3, get_dx2 = self.linears[-1].begin_update(x2)
 
@@ -234,9 +236,13 @@ class MultiHeadedAttention(Model):
     def attn(self, Q, K, V, mask=None):
         ''' Compute attention on (query, key, value) triplet '''
         # query shape: nB, nL, nH, nD
+
         S0, get_dQ_dK = self._attn1(Q, K)
+
         S1, get_dS0 = self._attn2(S0)
+
         S2, get_dS1_dV = self._attn3(S1, V)
+
 
         def backprop_attn(dS2):
             ''' Attention three inputs, one output '''
@@ -251,13 +257,16 @@ class MultiHeadedAttention(Model):
         nB, nL, nH, nD = Q0.shape
         # Shape of Q0: (nB, nL, nH, nD)
         # Shape of K0: (nB, nL, nH, nD)
-
         # --> (nB*nH, nL, nD)
+
         Q1 = Q0.transpose(0, 2, 1, 3).reshape(nB*nH, nL, nD)
+
         # --> (nB*nH, nD, nL)
         K1 = K0.transpose(0, 2, 3, 1).reshape(nB*nH, nD, nL)
-        K2 = K1 / math.sqrt(self.nI)
+
+        K2 = K1 / math.sqrt(self.nM)
         # (nB*nH, nL, nD) @ (nB*nH, nD, nL) --> (nB*nH, nL, nL)
+
         S = self.ops.xp.matmul(Q1, K2)
 
         def backprop_attn1(dS):
@@ -280,6 +289,7 @@ class MultiHeadedAttention(Model):
         # S1: nB, nH, nL, nL
         S1 = self.ops.softmax(S0)
 
+
         def backprop_attn2(dS1):
             dS0 = self.ops.xp.matmul(dS1, self.ops.xp.matmul(S0, (1 - S0)))
             return dS0
@@ -290,6 +300,7 @@ class MultiHeadedAttention(Model):
         nB, nH, nL, nL = S0.shape
         nD = V0.shape[-1]
         V1 = V0.reshape((nB*nH, nL, nD))
+
         S1 = S0.reshape((nB*nH, nL, nL))
         # S0: (nB, nH, nL, nL)
         # S1: (nB*nH, nL, nL)
@@ -298,7 +309,9 @@ class MultiHeadedAttention(Model):
         # S3: (nB, nL, nH, nD)
 
         # (nB*nH, nL, nL) @ (nB*nH, nL, nD) --> (nB*nH, nL, nD)
+
         S2 = self.ops.xp.matmul(S1, V1)
+
         S3 = S2.reshape((nB, nH, nL, nD)).transpose(0, 2, 1, 3)
 
         def backprop_attn3(dS3):
