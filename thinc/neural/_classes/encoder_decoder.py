@@ -109,9 +109,8 @@ class Encoder(Model):
         self.nM = nM
         self.nS = nS
         self.enc_stack = EncoderLayer(nH, nM)
-        ''' XXX: error here in backpropagation '''
-        # for i in range(nS - 1):
-        #     self.enc_stack = chain(self.enc_stack, EncoderLayer(nH, nM))
+        for i in range(nS - 1):
+            self.enc_stack = chain(self.enc_stack, EncoderLayer(nH, nM))
 
     def begin_update(self, b0, drop=0.0):
         b1, get_dx = self.enc_stack.begin_update(b0)
@@ -129,9 +128,8 @@ class Decoder(Model):
         self.nM = nM
         self.nS = nS
         self.dec_stack = DecoderLayer(nH, nM)
-        ''' XXX: backpropagation error if I use this code '''
-        # for i in range(self.nS - 1):
-        #     self.dec_stack = chain(self.dec_stack, DecoderLayer(nH, nM))
+        for i in range(self.nS - 1):
+            self.dec_stack = chain(self.dec_stack, DecoderLayer(nH, nM))
 
     def begin_update(self, b0, drop=0.0):
         b1, get_dx_dy = self.dec_stack.begin_update(b0)
@@ -306,8 +304,8 @@ class MultiHeadedAttention(Model):
             dS = dS.reshape(nB*nH, nL, nL)
             dQ1 = self.ops.xp.matmul(dS, K2.transpose(0, 2, 1))
             # (nB*nH, nL, nD).T @ (nB*nH, nL, nL) --> (nB*nH, nD, nL)
-            dK2 = self.ops.xp.matmul(Q1.transpose((0, 2, 1), dS))
-            dK1 = dK2 / math.sqrt(self.nI)
+            dK2 = self.ops.xp.matmul(Q1.transpose(0, 2, 1), dS)
+            dK1 = dK2 / math.sqrt(self.nM)
             dK0 = dK1.reshape((nB, nH, nD, nL)).transpose(0, 2, 3, 1)
             dQ0 = dQ1.reshape((nB, nH, nL, nD)).transpose(0, 2, 1, 3)
             return dQ0, dK0
