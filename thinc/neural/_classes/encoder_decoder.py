@@ -25,6 +25,7 @@ class SeqLinear(Model):
         Y = Y2d.reshape(final_shape)
 
         def finish_update(grad__BO):
+            print('Linear backprop')
             grad__BO = grad__BO.reshape(nB*nT, -1)
             return Y2d_backprop(grad__BO).reshape(initial_shape)
         return Y, finish_update
@@ -38,17 +39,20 @@ class SeqSoftmax(Model):
         self.softmax = Softmax(nI=nI, nO=nO)
 
     def begin_update(self, X, dim=3):
-        initial_shape = X.shape
-        final_shape = list(initial_shape[:-1]) + [self.nO]
-        nB = X.shape[0]
-        nT = X.shape[1]
-        X2d = X.reshape(-1, X.shape[2])
+        # X: nB, nL, nI
+        nB, nL, nI, nO = X.shape[0], X.shape[1], X.shape[2], self.nO
+        # X2d: nB*nL, nI
+        X2d = X.reshape(nB*nL, nI)
+        # Y2d: nB*nL, nO
         Y2d, Y2d_backprop = self.softmax.begin_update(X2d)
-        Y = Y2d.reshape(final_shape)
+        # Y: nB, nL, nO
+        Y = Y2d.reshape(nB, nL, nO)
 
-        def finish_update(grad__BO):
-            grad__BO = grad__BO.reshape(nB*nT, Y.shape[-1])
-            return Y2d_backprop(grad__BO).reshape(initial_shape)
+        def finish_update(dY):
+            dY2d = dY.reshape(nB*nL, nO)
+            dX2d = Y2d_backprop(dY2d)
+            dX = dX2d.reshape(nB, nL, nI)
+            return dX
         return Y, finish_update
 
 
@@ -86,6 +90,7 @@ class EncoderDecoder(Model):
         output, output_backprop = self.output_layer.begin_update(y)
 
         def finish_update(grad__BO):
+            print('EncoderDecoder backprop')
             return enc_backprop(dec_backprop(output_backprop(grad__BO)))
         return output, finish_update
 
@@ -102,7 +107,10 @@ class Encoder(Model):
 
     def begin_update(self, batch, drop=0.0):
         batch, encoders_backprop = self.encoder_stack.begin_update(batch)
-        return batch, encoders_backprop
+
+        def finish_update(grad__BO):
+            return encoders_backprop(grad__BO)
+        return batch, finish_update
 
 
 class Decoder(Model):
@@ -118,7 +126,11 @@ class Decoder(Model):
 
     def begin_update(self, batch, drop=0.0):
         batch, decoders_backprop = self.decoder_stack.begin_update(batch)
-        return batch, decoders_backprop
+
+        def finish_update(grad__BO):
+            return decoders_backprop(grad__BO)
+
+        return batch, finish_update
 
 
 class EncoderLayer(Model):
@@ -242,7 +254,6 @@ class MultiHeadedAttention(Model):
         S1, get_dS0 = self._attn2(S0)
 
         S2, get_dS1_dV = self._attn3(S1, V)
-
 
         def backprop_attn(dS2):
             ''' Attention three inputs, one output '''
