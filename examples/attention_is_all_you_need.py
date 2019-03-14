@@ -1,5 +1,5 @@
 from thinc.neural.ops import CupyOps
-from thinc.neural.util import add_eos_bos, subsequent_mask
+from thinc.neural.util import add_eos_bos
 from thinc.neural.util import numericalize, numericalize_vocab
 from thinc.neural._classes.encoder_decoder import EncoderDecoder
 from thinc.neural._classes.static_vectors import StaticVectors
@@ -9,7 +9,7 @@ import spacy
 from thinc.extra.datasets import get_iwslt
 from spacy.lang.en import English
 from spacy.lang.de import German
-import numpy as np
+import pickle
 import pdb
 MODEL_SIZE = 300
 
@@ -43,6 +43,7 @@ def main(heads=6, dropout=0.1, stack=6, batch_size=2):
         print('Running on GPU')
     else:
         print('Running on CPU')
+#
     train, dev, test = get_iwslt()
     train_X, train_Y = zip(*train)
     dev_X, dev_Y = zip(*dev)
@@ -53,8 +54,8 @@ def main(heads=6, dropout=0.1, stack=6, batch_size=2):
     ''' Read dataset '''
     nlp_en = spacy.load('en_core_web_md')
     nlp_de = spacy.load('de_core_news_md')
-    eos_vector = Model.ops.xp.random.rand(1, MODEL_SIZE)
-    bos_vector = Model.ops.xp.random.rand(1, MODEL_SIZE)
+    eos_vector = Model.ops.xp.random.rand(MODEL_SIZE)
+    bos_vector = Model.ops.xp.random.rand(MODEL_SIZE)
     nlp_de.vocab.set_vector('<eos>', eos_vector)
     nlp_de.vocab.set_vector('<bos>', bos_vector)
     en_tokenizer = English().Defaults.create_tokenizer(nlp_en)
@@ -77,6 +78,7 @@ def main(heads=6, dropout=0.1, stack=6, batch_size=2):
                 X[indx] = numericalize(en_word2indx, _x)
             for indx, _y in enumerate(y):
                 y[indx] = numericalize(de_word2indx, _y)
+            y_num = y
             ''' get text embeddings '''
             X = en_embeddings(Model.ops.asarray(X))
             y = de_embeddings(Model.ops.asarray(y))
@@ -86,6 +88,8 @@ def main(heads=6, dropout=0.1, stack=6, batch_size=2):
             y = y + X_positions[:sentence_size]
             batch = Batch(X, y, X_mask, y_mask)
             yh, backprop = model.begin_update(batch, drop=trainer.dropout)
+            x0, x1, x2 = yh.shape
+            backprop(Model.ops.xp.random.rand(x0, x1, x2))
 
 
 if __name__ == '__main__':
