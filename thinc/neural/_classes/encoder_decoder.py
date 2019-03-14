@@ -21,11 +21,11 @@ class SeqLinear(Model):
         nB = X.shape[0]
         nT = X.shape[1]
         X2d = X.reshape(-1, X.shape[2])
+        X2d = X2d.astype(Model.ops.xp.float32)
         Y2d, Y2d_backprop = self.linear.begin_update(X2d)
         Y = Y2d.reshape(final_shape)
 
         def finish_update(grad__BO):
-            print('Linear backprop')
             grad__BO = grad__BO.reshape(nB*nT, -1)
             return Y2d_backprop(grad__BO).reshape(initial_shape)
         return Y, finish_update
@@ -44,6 +44,7 @@ class SeqSoftmax(Model):
         # X2d: nB*nL, nI
         X2d = X.reshape(nB*nL, nI)
         # Y2d: nB*nL, nO
+        X2d = X2d.astype(Model.ops.xp.float32)
         Y2d, Y2d_backprop = self.softmax.begin_update(X2d)
         # Y: nB, nL, nO
         Y = Y2d.reshape(nB, nL, nO)
@@ -74,25 +75,31 @@ class EncoderDecoder(Model):
         self.nTGT = nTGT
         self.enc = Encoder(self.nH, self.nM, self.nS)
         self.dec = Decoder(self.nH, self.nM, self.nS)
-        self.output_layer = SeqSoftmax(nM, nTGT)
+        self.proj = SeqSoftmax(nM, nTGT)
 
-    def begin_update(self, batch, drop=0.0):
+    def begin_update(self, b0, drop=0.0):
         '''
         A batch object flows through the network. It contains input, output and
         corresponding masks. Input changes while the object travels through
         the network. Output is the golden output.
-
-        Input: sentences_in_batch x tokens_per_sentence x model_size
+        Input: nB x nL x nM
         '''
-        enc_out, enc_backprop = self.enc.begin_update(batch)
-        dec_out, dec_backprop = self.dec.begin_update(batch)
-        y = dec_out.y
-        output, output_backprop = self.output_layer.begin_update(y)
+        # b0: x0, y0
+        # b1: x1, y1
+        # b2: x2, y2
+        b1, get_dx0 = self.enc.begin_update(b0)
+        b2, get_dx1_dy1 = self.dec.begin_update(b1)
+        y2 = b2.y
+        y3, get_dy2 = self.proj.begin_update(y2)
 
-        def finish_update(grad__BO):
-            print('EncoderDecoder backprop')
-            return enc_backprop(dec_backprop(output_backprop(grad__BO)))
-        return output, finish_update
+        def finish_update(dy3):
+            dy2 = get_dy2(dy3)
+            _ = Model.ops.xp.zeros(dy2.shape, dtype=Model.ops.xp.float32)
+            dx1, dy1 = get_dx1_dy1((_, dy2))
+            dx0 = get_dx0(dx1)
+            return (dx0, dy1)
+
+        return y3, finish_update
 
 
 class Encoder(Model):
@@ -101,16 +108,17 @@ class Encoder(Model):
         self.nH = nH
         self.nM = nM
         self.nS = nS
-        self.encoder_stack = EncoderLayer(nH, nM)
-        for i in range(nS - 1):
-            self.encoder_stack = chain(self.encoder_stack, EncoderLayer(nH, nM))
+        self.enc_stack = EncoderLayer(nH, nM)
+        ''' XXX: error here in backpropagation '''
+        # for i in range(nS - 1):
+        #     self.enc_stack = chain(self.enc_stack, EncoderLayer(nH, nM))
 
-    def begin_update(self, batch, drop=0.0):
-        batch, encoders_backprop = self.encoder_stack.begin_update(batch)
+    def begin_update(self, b0, drop=0.0):
+        b1, get_dx = self.enc_stack.begin_update(b0)
 
         def finish_update(grad__BO):
-            return encoders_backprop(grad__BO)
-        return batch, finish_update
+            return get_dx(grad__BO)
+        return b1, finish_update
 
 
 class Decoder(Model):
@@ -120,17 +128,19 @@ class Decoder(Model):
         self.nH = nH
         self.nM = nM
         self.nS = nS
-        self.decoder_stack = DecoderLayer(nH, nM)
-        for i in range(self.nS - 1):
-            self.decoder_stack = chain(self.decoder_stack, DecoderLayer(nH, nM))
+        self.dec_stack = DecoderLayer(nH, nM)
+        ''' XXX: backpropagation error if I use this code '''
+        # for i in range(self.nS - 1):
+        #     self.dec_stack = chain(self.dec_stack, DecoderLayer(nH, nM))
 
-    def begin_update(self, batch, drop=0.0):
-        batch, decoders_backprop = self.decoder_stack.begin_update(batch)
+    def begin_update(self, b0, drop=0.0):
+        b1, get_dx_dy = self.dec_stack.begin_update(b0)
 
         def finish_update(grad__BO):
-            return decoders_backprop(grad__BO)
+            dX, dY = grad__BO
+            return get_dx_dy((dX, dY,))
 
-        return batch, finish_update
+        return b1, finish_update
 
 
 class EncoderLayer(Model):
@@ -178,12 +188,23 @@ class DecoderLayer(Model):
         y3, get_dy2 = self.ffd.begin_update(y2)
         batch.y = y3
 
-        def finish_update(dy3):
+        def finish_update(grad__BO):
+            ''' TODO: we have to discuss if this is actually correct
+            The loss function regards only the EncoderDecoder output, and not
+            the EncoderDecoder input. But actually, we need to calculate
+            how much the transformed input affects the output, so we can
+            backpropagate the Encoder layer later.
+            The proposed method is to start with a zero grad and increase it
+            while we are inside the decoder stack.
+            It seems mathematical correct, but needs test.
+            '''
+            dy3, dx = grad__BO
             dy2 = get_dy2(dy3)
             dy1, dx0 = get_dy1_dx0(dy2)
             dy00, dy01 = get_dy00_dy01(dy1)
             dy0 = dy00 + dy01
-            return (dx0, dy0)
+            dx += dx0
+            return (dx, dy0,)
 
         return batch, finish_update
 
@@ -282,9 +303,7 @@ class MultiHeadedAttention(Model):
 
         def backprop_attn1(dS):
             # (nB*nH, nL, nL) @ (nB*nH, nD, nL).T --> (nB*nH, nL, nD)
-            # To test this, set some values in dS to nan, and check they
-            # propagate how we expect.
-            # Also can compare against an autograd solution.
+            dS = dS.reshape(nB*nH, nL, nL)
             dQ1 = self.ops.xp.matmul(dS, K2.transpose(0, 2, 1))
             # (nB*nH, nL, nD).T @ (nB*nH, nL, nL) --> (nB*nH, nD, nL)
             dK2 = self.ops.xp.matmul(Q1.transpose((0, 2, 1), dS))
@@ -299,7 +318,6 @@ class MultiHeadedAttention(Model):
         # S0: nB, nH, nL, nL
         # S1: nB, nH, nL, nL
         S1 = self.ops.softmax(S0)
-
 
         def backprop_attn2(dS1):
             dS0 = self.ops.xp.matmul(dS1, self.ops.xp.matmul(S0, (1 - S0)))
@@ -327,13 +345,13 @@ class MultiHeadedAttention(Model):
 
         def backprop_attn3(dS3):
             # (nB, nL, nH, nD) --> (nB*nH, nL, nD)
-            dS2 = dS3.tranpose(0, 2, 1, 3).reshape((nB*nH, nH, nD))
+            dS2 = dS3.transpose(0, 2, 1, 3).reshape((nB*nH, nL, nD))
             # (nB*nH, nL, nD) @ (nB*nH, nL, nD).T --> (nB*nH, nL, nL)
             dS1 = self.ops.xp.matmul(dS2, V1.transpose(0, 2, 1))
             # (nB*nH, nL, nL).T @ (nB*nH, nL, nD) --> (nB*nH, nL, nD)
             dV1 = self.ops.xp.matmul(S1.transpose(0, 2, 1), dS2)
             dS0 = dS1.reshape((nB, nH, nL, nL))
-            dV0 = dV1.reshape((nB, nL, nL, nD))
+            dV0 = dV1.reshape((nB, nH, nL, nD))
             return dS0, dV0
 
         return S3, backprop_attn3
