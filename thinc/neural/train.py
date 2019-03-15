@@ -58,23 +58,31 @@ class Trainer(object):
                 X = _take_slice(train_X, slice_)
                 y = _take_slice(train_y, slice_)
                 j += self.batch_size
-                max_sent_in_batch = 0
+                max_sent = 0
                 for i, j in zip(X, y):
                     curr_len = max(len(i), len(j))
-                    if (curr_len > max_sent_in_batch):
-                        max_sent_in_batch = curr_len
-                X_pad = self.ops.xp.zeros([self.batch_size, max_sent_in_batch])
-                y_pad = self.ops.xp.zeros([self.batch_size, max_sent_in_batch])
+                    if (curr_len > max_sent):
+                        max_sent = curr_len
+                nX = self.ops.xp.empty(self.batch_size)
+                nY = self.ops.xp.empty(self.batch_size)
+                X_mask = self.ops.xp.ones([self.batch_size, max_sent], dtype=self.ops.xp.int)
+                y_mask = self.ops.xp.ones([self.batch_size, max_sent], dtype=self.ops.xp.int)
                 sent = 0
                 for x_curr, y_curr in zip(X, y):
-                    x_pad_size = max_sent_in_batch - len(x_curr)
-                    y_pad_size = max_sent_in_batch - len(y_curr)
-                    X_pad[sent][-x_pad_size:] = 1
-                    y_pad[sent][-y_pad_size:] = 1
-                    x_curr.extend(['<pad>' for i in range(x_pad_size)])
-                    y_curr.extend(['<pad>' for i in range(y_pad_size)])
+                    x_pad = max_sent - len(x_curr)
+                    y_pad = max_sent - len(y_curr)
+                    ''' this if is a bit ugly, but slicing gets really
+                    weird if you end up with a zero here '''
+                    if x_pad > 0:
+                        X_mask[sent][-x_pad:] = 0
+                    if y_pad > 0:
+                        y_mask[sent][-y_pad:] = 0
+                    nX[sent] = len(x_curr)
+                    nY[sent] = len(y_curr)
+                    x_curr.extend(['<pad>' for i in range(x_pad)])
+                    y_curr.extend(['<pad>' for i in range(y_pad)])
                     sent += 1
-                yield X, y, X_pad, y_pad
+                yield (X, y), (X_mask, y_mask), (nX, nY)
                 if progress_bar:
                     pbar.update(self.batch_size)
             for func in self.each_epoch:
