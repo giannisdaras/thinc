@@ -115,7 +115,7 @@ class Encoder(Model):
     def begin_update(self, b0, drop=0.0):
         b1, get_dx = self.enc_stack.begin_update(b0)
 
-        def finish_update(grad__BO):
+        def finish_update(grad__BO, sgd=None):
             return get_dx(grad__BO)
         return b1, finish_update
 
