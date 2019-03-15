@@ -270,16 +270,20 @@ class MultiHeadedAttention(Model):
 
         S0, get_dQ_dK = self._attn1(Q, K)
 
-        S1, get_dS0 = self._attn2(S0)
+        S1, get_dS0 = self._attn2(S0, mask)
 
-        S2, get_dS1_dV = self._attn3(S1, V)
+        S2, get_dS1 = self._attn3(S1)
 
-        def backprop_attn(dS2):
+        S3, get_dS2_dV = self._attn4(S2, V)
+
+        def backprop_attn(dS3):
             ''' Attention three inputs, one output '''
-            dS1, dV = get_dS1_dV(dS2)
+            dS2, dV = get_dS2_dV(dS3)
+            dS1 = get_dS1(dS2)
             dS0 = get_dS0(dS1)
             dQ, dK = get_dQ_dK(dS0)
             return dQ, dK, dV
+
         return S2, backprop_attn
 
     def _attn1(self, Q0, K0):
@@ -311,7 +315,18 @@ class MultiHeadedAttention(Model):
             return dQ0, dK0
         return S.reshape((nB, nH, nL, nL)), backprop_attn1
 
-    def _attn2(self, S0):
+    def _attn2(self, S0, mask):
+        ''' Applying mask '''
+        ''' The following line, sets to -infinity every value that we cannot
+        attend to '''
+        S1 = Model.ops.xp.where(mask != 0, S0, -1e9)
+
+        def finish_update(dS0):
+            return dS0
+
+        return S1, finish_update
+
+    def _attn3(self, S0):
         ''' A simple softmax to the scores '''
         # S0: nB, nH, nL, nL
         # S1: nB, nH, nL, nL
@@ -322,7 +337,7 @@ class MultiHeadedAttention(Model):
             return dS0
         return S1, backprop_attn2
 
-    def _attn3(self, S0, V0):
+    def _attn4(self, S0, V0):
         ''' Multiplication with values '''
         nB, nH, nL, nL = S0.shape
         nD = V0.shape[-1]
