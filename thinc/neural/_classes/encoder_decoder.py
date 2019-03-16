@@ -26,7 +26,7 @@ class SeqLinear(Model):
         Y = Y2d.reshape(final_shape)
 
         def finish_update(grad__BO, sgd=None):
-            grad__BO = grad__BO.reshape(nB*nT, -1)
+            grad__BO = grad__BO.reshape(nB*nT, -1).astype(Model.ops.xp.float32)
             return Y2d_backprop(grad__BO).reshape(initial_shape)
         return Y, finish_update
 
@@ -58,7 +58,7 @@ class SeqSoftmax(Model):
 
 
 class EncoderDecoder(Model):
-    def __init__(self, nS=6, nH=6, nM=300, nTGT=10000):
+    def __init__(self, nS=1, nH=6, nM=300, nTGT=10000):
         '''
         EncoderDecoder consists of an encoder stack, a decoder stack and an
         output layer which is a linear + softmax.
@@ -269,11 +269,8 @@ class MultiHeadedAttention(Model):
         # query shape: nB, nL, nH, nD
 
         S0, get_dQ_dK = self._attn1(Q, K)
-
         S1, get_dS0 = self._attn2(S0, mask)
-
         S2, get_dS1 = self._attn3(S1)
-
         S3, get_dS2_dV = self._attn4(S2, V)
 
         def backprop_attn(dS3):
@@ -283,8 +280,7 @@ class MultiHeadedAttention(Model):
             dS0 = get_dS0(dS1)
             dQ, dK = get_dQ_dK(dS0)
             return dQ, dK, dV
-
-        return S2, backprop_attn
+        return S3, backprop_attn
 
     def _attn1(self, Q0, K0):
         # nB: #Sentences, nL: #Length, nH: #Heads, nD: #Dimensions
@@ -316,15 +312,17 @@ class MultiHeadedAttention(Model):
         return S.reshape((nB, nH, nL, nL)), backprop_attn1
 
     def _attn2(self, S0, mask):
-        ''' Applying mask '''
-        ''' The following line, sets to -infinity every value that we cannot
-        attend to '''
-        S1 = Model.ops.xp.where(mask != 0, S0, -1e9)
+        S1 = S0.transpose(1, 0, 2, 3)
+        S2 = S1 * mask - (1 - mask) * (1e9)
+        S3 = S2.transpose(1, 0, 2, 3)
 
-        def finish_update(dS0):
+        def backprop_attn2(dS3):
+            dS2 = dS3.transpose(1, 0, 2, 3)
+            dS1 = dS2 * mask
+            dS0 = dS1.transpose(1, 0, 2, 3)
             return dS0
 
-        return S1, finish_update
+        return S3, backprop_attn2
 
     def _attn3(self, S0):
         ''' A simple softmax to the scores '''
@@ -332,10 +330,10 @@ class MultiHeadedAttention(Model):
         # S1: nB, nH, nL, nL
         S1 = self.ops.softmax(S0)
 
-        def backprop_attn2(dS1):
+        def backprop_attn3(dS1):
             dS0 = self.ops.xp.matmul(dS1, self.ops.xp.matmul(S0, (1 - S0)))
             return dS0
-        return S1, backprop_attn2
+        return S1, backprop_attn3
 
     def _attn4(self, S0, V0):
         ''' Multiplication with values '''
@@ -356,7 +354,7 @@ class MultiHeadedAttention(Model):
 
         S3 = S2.reshape((nB, nH, nL, nD)).transpose(0, 2, 1, 3)
 
-        def backprop_attn3(dS3):
+        def backprop_attn4(dS3):
             # (nB, nL, nH, nD) --> (nB*nH, nL, nD)
             dS2 = dS3.transpose(0, 2, 1, 3).reshape((nB*nH, nL, nD))
             # (nB*nH, nL, nD) @ (nB*nH, nL, nD).T --> (nB*nH, nL, nL)
@@ -367,4 +365,4 @@ class MultiHeadedAttention(Model):
             dV0 = dV1.reshape((nB, nH, nL, nD))
             return dS0, dV0
 
-        return S3, backprop_attn3
+        return S3, backprop_attn4
