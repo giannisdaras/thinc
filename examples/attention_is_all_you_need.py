@@ -19,15 +19,18 @@ class Batch:
         padding/future-words-hiding masks '''
     def __init__(self, pair, pad_masks, lengths):
         # X, y: nB x nL x nM
-        # X_mask, y_pad_mask: nB x nL
-        # y_mask: nB x nL x nL
+        # X_pad_mask, y_pad_mask: nB x nL
+        # X_mask, y_mask: nB x nL x nL
         X, y = pair
-        self.X_mask, self.y_pad_mask = pad_masks
+        self.X_pad_mask, self.y_pad_mask = pad_masks
         nX, nY = lengths
-        self.X = X
+        ''' TODO: this is super clumpsy and we need to fix this, but at least
+        is happening only once ber batch, so it's acceptable for now '''
         self.y = y
         self.nB = X.shape[0]
         self.nL = X.shape[1]
+        self.X = X
+        self.X_mask = Model.ops.xp.repeat(self.X_pad_mask[:, :, Model.ops.xp.newaxis], self.nL, axis=2)
         ''' Explanation:
         y_mask has different dimensions than x_pad mask, because the mask
         itself is responsible for the different "steps" in the decoder
@@ -38,6 +41,7 @@ class Batch:
         subsequent mask (which are 2d arrays), we insert a fake dimension
         for successfull broadcasting.
         '''
+        # (nB, 1, nL) & (1, nL, nL) --> (nB, nL, nL)
         self.y_mask = Model.ops.xp.expand_dims(self.y_pad_mask, -2) & \
             self.subsequent_mask(self.nL)
 
@@ -69,9 +73,11 @@ def main(nH=6, dropout=0.1, nS=6, nB=2, nE=1):
 
     # DEBUG MODE:
     # model = EncoderDecoder()
-    # X = Model.ops.xp.random.rand(2, 17, 300)
-    # y = Model.ops.xp.random.rand(2, 17, 300)
-    # batch = Batch(X, y, None, None)
+    # X = Model.ops.xp.random.rand(2, 17, 300, dtype=Model.ops.xp.float32)
+    # y = Model.ops.xp.random.rand(2, 17, 300, dtype=Model.ops.xp.float32)
+    # X_mask = Model.ops.xp.zeros([2, 17], dtype=Model.ops.xp.int)
+    # y_mask = Model.ops.xp.zeros([2, 17], dtype=Model.ops.xp.int)
+    # batch = Batch((X, y), (X_mask, y_mask), (None, None))
     # yh, backprop = model.begin_update(batch)
     # _1, _2, _3 = yh.shape
     # print(backprop(Model.ops.xp.random.rand(_1, _2, _3, dtype=Model.ops.xp.float32)))
@@ -124,9 +130,9 @@ def main(nH=6, dropout=0.1, nS=6, nB=2, nE=1):
             y = y_emb + X_positions[:sentence_size]
             X = X.astype(Model.ops.xp.float32)
             y = y.astype(Model.ops.xp.float32)
-            b = Batch((X, y), (X_mask, y_mask), (nX, nY))
+            b0 = Batch((X, y), (X_mask, y_mask), (nX, nY))
             pdb.set_trace()
-            # yh, backprop = model.begin_update(batch, drop=trainer.dropout)
+            yh, backprop = model.begin_update(batch, drop=trainer.dropout)
 
 
 if __name__ == '__main__':
