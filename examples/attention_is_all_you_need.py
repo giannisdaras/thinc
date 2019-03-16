@@ -131,8 +131,7 @@ def main(nH=6, dropout=0.1, nS=6, nB=2, nE=1):
             X = X.astype(Model.ops.xp.float32)
             y = y.astype(Model.ops.xp.float32)
             b0 = Batch((X, y), (X_mask, y_mask), (nX, nY))
-            pdb.set_trace()
-            yh, backprop = model.begin_update(batch, drop=trainer.dropout)
+            yh, backprop = model.begin_update(b0, drop=trainer.dropout)
 
 
 if __name__ == '__main__':
