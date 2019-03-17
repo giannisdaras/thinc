@@ -1,12 +1,13 @@
 from thinc.neural.ops import CupyOps
-from thinc.neural.util import add_eos_bos
-from thinc.neural.util import numericalize, numericalize_vocab
+from thinc.neural.util import add_eos_bos, numericalize, numericalize_vocab, \
+    to_categorical
 from thinc.neural._classes.encoder_decoder import EncoderDecoder
 from thinc.neural._classes.static_vectors import StaticVectors
 from thinc.v2v import Model
 import plac
 import spacy
 from thinc.extra.datasets import get_iwslt
+from thinc.loss import categorical_crossentropy
 from spacy.lang.en import English
 from spacy.lang.de import German
 import pickle
@@ -79,13 +80,14 @@ def main(nH=6, dropout=0.1, nS=6, nB=2, nE=1):
     # y_mask = Model.ops.xp.zeros([2, 17], dtype=Model.ops.xp.int)
     # batch = Batch((X, y), (X_mask, y_mask), (None, None))
     # yh, backprop = model.begin_update(batch)
+    # pdb.set_trace()
     # _1, _2, _3 = yh.shape
     # print(backprop(Model.ops.xp.random.rand(_1, _2, _3, dtype=Model.ops.xp.float32)))
+    # pdb.set_trace()
     train, dev, test = get_iwslt()
     train_X, train_Y = zip(*train)
     dev_X, dev_Y = zip(*dev)
     test_X, test_Y = zip(*test)
-    model = EncoderDecoder()
     X_positions = Model.ops.position_encode(50, MODEL_SIZE)
     print('Position encodings computed successfully')
     ''' Read dataset '''
@@ -107,6 +109,8 @@ def main(nH=6, dropout=0.1, nS=6, nB=2, nE=1):
     de_embeddings = StaticVectors('de_core_news_md', MODEL_SIZE, column=0)
     en_word2indx, en_indx2word = numericalize_vocab(nlp_en)
     de_word2indx, de_indx2word = numericalize_vocab(nlp_de)
+    nTGT = len(de_word2indx)
+    model = EncoderDecoder(nTGT=nTGT)
     with model.begin_training(train_X, train_Y, batch_size=nB, nb_epoch=nE) \
             as (trainer, optimizer):
         ''' add beginning and ending of sentence marks '''
@@ -132,6 +136,8 @@ def main(nH=6, dropout=0.1, nS=6, nB=2, nE=1):
             y = y.astype(Model.ops.xp.float32)
             b0 = Batch((X, y), (X_mask, y_mask), (nX, nY))
             yh, backprop = model.begin_update(b0, drop=trainer.dropout)
+            grad, loss = categorical_crossentropy(yh, y_num)
+            backprop(grad)
 
 
 if __name__ == '__main__':
