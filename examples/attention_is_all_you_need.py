@@ -156,9 +156,20 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
             y = y.astype(Model.ops.xp.float32)
             b0 = Batch((X, y), (X_mask, y_mask), (nX, nY))
             yh, backprop = model.begin_update(b0, drop=trainer.dropout)
-            grad, loss = categorical_crossentropy(yh, y_num)
-            backprop(grad)
-
+            yh2d = yh.reshape(-1, nTGT)
+            y_num2d = y_num.reshape(-1)
+            grad2d, loss = categorical_crossentropy(yh2d, y_num2d)
+            grad = grad2d.reshape(nB, nL, nTGT)
+            dX, dY = backprop(grad, optimizer)
+            ''' the sum does not affect the grad '''
+            dX_emb1, dy_emb1 = dX, dY
+            dX_emb0 = dX_emb1.reshape(-1, MODEL_SIZE)
+            dy_emb0 = dy_emb1.reshape(-1, MODEL_SIZE)
+            backprop_X_emb0(dX_emb0, optimizer)
+            backprop_y_emb0(dy_emb0, optimizer)
+        
+        with model.use_params(optimizer.averages):
+            print("End: %.3f" % model.evaluate(train_X, train_Y)) 
 
 if __name__ == '__main__':
     plac.call(main)
