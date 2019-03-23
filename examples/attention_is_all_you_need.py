@@ -126,25 +126,32 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
     model = EncoderDecoder(nTGT=nTGT)
     with model.begin_training(train_X, train_Y, batch_size=nB, nb_epoch=nE) \
             as (trainer, optimizer):
+        trainer.dropout = dropout
+        trainer.dropout_decay = 1e-4
+        
         ''' add beginning and ending of sentence marks '''
         for pairs, pad_masks, lengths in trainer.batch_mask(train_X, train_Y):
             X_text, y_text = pairs
             X_mask, y_mask = pad_masks
+            nL = X_mask.shape[1]
             nX, nY = lengths
             ''' numericalize text '''
-            X_num = []
-            y_num = []
-            for _x in X_text:
-                X_num.append(numericalize(en_word2indx, _x))
-            for _y in y_text:
-                y_num.append(numericalize(de_word2indx, _y))
+            X_num = Model.ops.xp.empty([1, nB, nL], dtype=Model.ops.xp.int)
+            y_num = Model.ops.xp.empty([1, nB, nL], dtype=Model.ops.xp.int)
+            for i, _x in enumerate(X_text):
+                X_num[0][i][:] = numericalize(en_word2indx, _x)
+            for i, _y in enumerate(y_text):
+                y_num[0][i][:] = numericalize(de_word2indx, _y)
             ''' get text embeddings '''
-            X_emb = en_embeddings(Model.ops.asarray(X_num))
-            y_emb = de_embeddings(Model.ops.asarray(y_num))
-            sentence_size = X_emb.shape[1]
+            X_emb0, backprop_X_emb0 = en_embeddings.begin_update(X_num)
+            y_emb0, backprop_y_emb0 = de_embeddings.begin_update(y_num)
+
+            ''' Text embeddings must be reshaped '''
+            X_emb1 = X_emb0.reshape(nB, nL, MODEL_SIZE)
+            y_emb1 = y_emb0.reshape(nB, nL, MODEL_SIZE)
             ''' add position encodings '''
-            X = X_emb + X_positions[:sentence_size]
-            y = y_emb + X_positions[:sentence_size]
+            X = X_emb1 + X_positions[:nL]
+            y = y_emb1 + X_positions[:nL]
             X = X.astype(Model.ops.xp.float32)
             y = y.astype(Model.ops.xp.float32)
             b0 = Batch((X, y), (X_mask, y_mask), (nX, nY))
