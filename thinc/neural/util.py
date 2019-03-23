@@ -170,24 +170,34 @@ def partition(examples, split_size):  # pragma: no cover
     return examples[:split], examples[split:]
 
 
-def numericalize_vocab(nlp, rank=True):
+def numericalize_vocab(nlp):
     ''' Numericalize vocabulary in a continuous range '''
-    word2indx = defaultdict(int)  # all oov to 0
     indx2word = defaultdict(lambda: 'oov')
-    if rank:
-        for word in nlp.vocab:
-            word2indx[word.text] = word.rank
-            indx2word[word.rank] = word.text
-    else:
-        for indx, word in enumerate(nlp.vocab):
-            word2indx[word.text] = indx
-            indx2word[indx] = word.text
+    # <pad> --> 0
+    # last  --> nlp.vocab 
+    # <eos> --> nlp.vocab + 1
+    # <bos> --> nlp.vocab + 2
+    # oov --> nlp.vocab + 3
+    vocab = len(nlp.vocab)
+    word2indx = defaultdict(lambda: vocab + 3) 
+    
+    
+    for indx, word in enumerate(nlp.vocab):
+        word2indx[word.text] = indx + 1 
+        indx2word[indx + 1] = word.text
+    
+    word2indx['<eos>'] = vocab + 1
+    indx2word[vocab + 1] = '<eos>'
+    
+    word2indx['<bos>'] = vocab + 2
+    indx2word[vocab + 2] = '<bos>'
+
+    word2indx['<pad>'] = 0
+    indx2word[0] = '<pad>'
+    
     return word2indx, indx2word
 
 
-def numericalize(word2indx, *args):
+def numericalize(word2indx, X):
     ''' Get numerical input out of list of tokens '''
-    result = []
-    for X in args:
-        result.append([word2indx[x] for x in X])
-    return result
+    return [word2indx[x] for x in X]
