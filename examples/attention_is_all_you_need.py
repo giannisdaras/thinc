@@ -7,12 +7,41 @@ from spacy.lang.en import English
 from spacy.lang.de import German
 from thinc.neural.util import get_array_module
 from spacy._ml import link_vectors_to_models
-from thinc.neural.util import add_eos_bos, numericalize, numericalize_vocab
+from thinc.neural.util import add_eos_bos, numericalize, numericalize_vocab, \
+to_categorical
 from thinc.neural._classes.encoder_decoder import EncoderDecoder
 from thinc.neural._classes.embed import Embed
 from thinc.v2v import Model
+from timeit import default_timer as timer
 
 MODEL_SIZE = 300
+MAX_LENGTH = 50
+
+
+def from_dataset(dev_X, dev_y, batch_size):
+    ''' Get slice from input '''
+    nX = Model.ops.xp.empty(batch_size)
+    nY = Model.ops.xp.empty(batch_size)
+    X_mask = Model.ops.xp.ones([batch_size, MAX_LENGTH],
+                               dtype=Model.ops.xp.int)
+    y_mask = Model.ops.xp.ones([batch_size, MAX_LENGTH],
+                               dtype=Model.ops.xp.int)
+    sent = 0
+    for x_curr, y_curr in zip(dev_X, dev_y):
+        x_pad = MAX_LENGTH - len(x_curr)
+        y_pad = MAX_LENGTH - len(y_curr)
+        if x_pad > 0:
+            X_mask[sent][-x_pad:] = 0
+        if y_pad > 0:
+            y_mask[sent][-y_pad:] = 0
+        nX[sent] = len(x_curr)
+        nY[sent] = len(y_curr)
+        x_curr.extend(['<pad>' for i in range(x_pad)])
+        y_curr.extend(['<pad>' for i in range(y_pad)])
+        sent += 1
+    return (dev_X, dev_y), (X_mask, y_mask), (nX, nY)
+
+
 
 
 
