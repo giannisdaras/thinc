@@ -79,32 +79,19 @@ def resize_vectors(vectors):
 
 
 @plac.annotations(
-    nH=("number of heads of the multiheaded attention", "option"),
+    nH=("number of heads of the multiheaded attention", "option", "nH", int),
     dropout=("model dropout", "option"),
-    nS=('Number of encoders/decoder in the enc/dec stack.', "option"),
-    nB=('Batch size for the training', "option"),
-    nE=('Number of epochs for the training', "option")
+    nS=('Number of encoders/decoder in the enc/dec stack.', "option", "nS", int),
+    nB=('Batch size for the training', "option", "nB", int),
+    nE=('Number of epochs for the training', "option", "nE", int),
+    use_gpu=("Which GPU to use. -1 for CPU", "option", "g", int),
+    lim=("Number of sentences to load from dataset", "option", "l", int)
 )
-def main(nH=6, dropout=0.1, nS=6, nB=2, nE=1):
-    if (CupyOps.xp is not None):
-        Model.ops = CupyOps()
-        Model.Ops = CupyOps
-        print('Running on GPU')
-    else:
-        print('Running on CPU')
-
-    # DEBUG MODE:
-    # model = EncoderDecoder()
-    # X = Model.ops.xp.random.rand(2, 17, 300, dtype=Model.ops.xp.float32)
-    # y = Model.ops.xp.random.rand(2, 17, 300, dtype=Model.ops.xp.float32)
-    # X_mask = Model.ops.xp.zeros([2, 17], dtype=Model.ops.xp.int)
-    # y_mask = Model.ops.xp.zeros([2, 17], dtype=Model.ops.xp.int)
-    # batch = Batch((X, y), (X_mask, y_mask), (None, None))
-    # yh, backprop = model.begin_update(batch)
-    # pdb.set_trace()
-    # _1, _2, _3 = yh.shape
-    # print(backprop(Model.ops.xp.random.rand(_1, _2, _3, dtype=Model.ops.xp.float32)))
-    # pdb.set_trace()
+def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
+    if use_gpu != -1:
+        # TODO: Make specific to different devices, e.g. 1 vs 0
+        spacy.require_gpu()
+    max_length = 50
     train, dev, test = get_iwslt()
     train_X, train_Y = zip(*train)
     dev_X, dev_Y = zip(*dev)
