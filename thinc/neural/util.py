@@ -174,27 +174,28 @@ def numericalize_vocab(nlp):
     ''' Numericalize vocabulary in a continuous range '''
     indx2word = defaultdict(lambda: 'oov')
     # <pad> --> 0
-    # last  --> nlp.vocab 
+    # last  --> nlp.vocab
     # <eos> --> nlp.vocab + 1
     # <bos> --> nlp.vocab + 2
     # oov --> nlp.vocab + 3
-    vocab = len(nlp.vocab)
-    word2indx = defaultdict(lambda: vocab + 3) 
-    
-    
+    keys = set()
+    for word in nlp.vocab:
+        keys.add(word)
+    vocab = len(keys)
+    word2indx = defaultdict(lambda: vocab + 3)
     for indx, word in enumerate(nlp.vocab):
-        word2indx[word.text] = indx + 1 
+        word2indx[word.text] = indx + 1
         indx2word[indx + 1] = word.text
-    
+
     word2indx['<eos>'] = vocab + 1
     indx2word[vocab + 1] = '<eos>'
-    
+
     word2indx['<bos>'] = vocab + 2
     indx2word[vocab + 2] = '<bos>'
 
     word2indx['<pad>'] = 0
     indx2word[0] = '<pad>'
-    
+
     return word2indx, indx2word
 
 
