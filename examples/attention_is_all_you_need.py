@@ -1,10 +1,4 @@
-from thinc.neural.ops import CupyOps
-from thinc.neural.util import add_eos_bos, numericalize, numericalize_vocab, \
-    to_categorical
-from thinc.neural._classes.encoder_decoder import EncoderDecoder
-from thinc.neural._classes.embed import Embed
-from thinc.neural._classes.static_vectors import StaticVectors
-from thinc.v2v import Model
+''' A driver file for attention is all you need paper demonstration '''
 import plac
 import spacy
 from thinc.extra.datasets import get_iwslt
@@ -13,11 +7,13 @@ from spacy.lang.en import English
 from spacy.lang.de import German
 from thinc.neural.util import get_array_module
 from spacy._ml import link_vectors_to_models
-from spacy.lang.en import English
-from spacy.lang.de import German
-import pickle
-import sys
+from thinc.neural.util import add_eos_bos, numericalize, numericalize_vocab
+from thinc.neural._classes.encoder_decoder import EncoderDecoder
+from thinc.neural._classes.embed import Embed
+from thinc.v2v import Model
+
 MODEL_SIZE = 300
+
 
 
 class Batch:
@@ -120,7 +116,7 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
     en_word2indx, en_indx2word = numericalize_vocab(nlp_en)
     de_word2indx, de_indx2word = numericalize_vocab(nlp_de)
     ''' 1 for oov, 1 for pad '''
-    nTGT = len(de_word2indx) + 2 
+    nTGT = len(de_word2indx) + 2
     en_embeddings = Embed(MODEL_SIZE, nM=MODEL_SIZE, nV=nTGT)
     de_embeddings = Embed(MODEL_SIZE, nM=MODEL_SIZE, nV=nTGT)
     model = EncoderDecoder(nTGT=nTGT)
@@ -128,7 +124,7 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
             as (trainer, optimizer):
         trainer.dropout = dropout
         trainer.dropout_decay = 1e-4
-        
+
         ''' add beginning and ending of sentence marks '''
         for pairs, pad_masks, lengths in trainer.batch_mask(train_X, train_Y):
             X_text, y_text = pairs
@@ -167,9 +163,9 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
             dy_emb0 = dy_emb1.reshape(-1, MODEL_SIZE)
             backprop_X_emb0(dX_emb0, optimizer)
             backprop_y_emb0(dy_emb0, optimizer)
-        
+
         with model.use_params(optimizer.averages):
-            print("End: %.3f" % model.evaluate(train_X, train_Y)) 
+            print("End: %.3f" % model.evaluate(train_X, train_Y))
 
 if __name__ == '__main__':
     plac.call(main)
