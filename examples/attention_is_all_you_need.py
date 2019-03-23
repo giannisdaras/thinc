@@ -2,6 +2,7 @@ from thinc.neural.ops import CupyOps
 from thinc.neural.util import add_eos_bos, numericalize, numericalize_vocab, \
     to_categorical
 from thinc.neural._classes.encoder_decoder import EncoderDecoder
+from thinc.neural._classes.embed import Embed
 from thinc.neural._classes.static_vectors import StaticVectors
 from thinc.v2v import Model
 import plac
@@ -10,8 +11,12 @@ from thinc.extra.datasets import get_iwslt
 from thinc.loss import categorical_crossentropy
 from spacy.lang.en import English
 from spacy.lang.de import German
+from thinc.neural.util import get_array_module
+from spacy._ml import link_vectors_to_models
+from spacy.lang.en import English
+from spacy.lang.de import German
 import pickle
-import pdb
+import sys
 MODEL_SIZE = 300
 
 
@@ -50,11 +55,27 @@ class Batch:
         return (Model.ops.xp.triu(Model.ops.xp.ones([1, nL, nL]), k=1) == 0)
 
 
-def spacy_tokenize(tokenizer, *args):
-    result = []
-    for data in args:
-        result.append([doc.text.split(' ') for doc in tokenizer.pipe(data)])
-    return result
+def spacy_tokenize(X_tokenizer, Y_tokenizer, X, Y, max_length=50):
+    X_out = []
+    Y_out = []
+    for x, y in zip(X, Y):
+        xdoc = X_tokenizer(x)
+        ydoc = Y_tokenizer(y)
+        if len(xdoc) < max_length and (len(ydoc) + 2) < max_length:
+            X_out.append([w.text for w in xdoc])
+            Y_out.append([w.text for w in ydoc])
+    return X_out, Y_out
+
+
+def resize_vectors(vectors):
+    xp = get_array_module(vectors.data)
+    shape = (int(vectors.shape[0]*1.1), vectors.shape[1])
+    if not hasattr(xp, 'resize'):
+        vectors.data = vectors.data.get()
+        vectors.resize(shape)
+        vectors.data = xp.array(vectors.data)
+    else:
+        vectors.resize(shape)
 
 
 @plac.annotations(
