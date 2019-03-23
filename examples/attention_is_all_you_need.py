@@ -42,7 +42,50 @@ def from_dataset(dev_X, dev_y, batch_size):
     return (dev_X, dev_y), (X_mask, y_mask), (nX, nY)
 
 
+def get_model_inputs(*args, dataset=False):
+    ''' a function to prepare model inputs either directly from dataset
+    or from a trainer slice '''
+    if not dataset:
+        nB, pairs, pad_masks, lengths, en_word2indx, de_word2indx, en_embeddings, \
+        de_embeddings, X_positions = args
+    else:
+        nB, dev_X, dev_y, en_word2indx, de_word2indx, en_embeddings, \
+        de_embeddings, X_positions = args
+        pairs, pad_masks, lengths = from_dataset(dev_X, dev_y, nB)
 
+    X_text, y_text = pairs
+    X_mask, y_mask = pad_masks
+    nL = X_mask.shape[1]
+    nX, nY = lengths
+
+
+    ''' numericalize text '''
+    X_num = Model.ops.xp.empty([1, nB, nL], dtype=Model.ops.xp.int)
+    y_num = Model.ops.xp.empty([1, nB, nL], dtype=Model.ops.xp.int)
+    for i, _x in enumerate(X_text):
+        X_num[0][i][:] = numericalize(en_word2indx, _x)
+    for i, _y in enumerate(y_text):
+        y_num[0][i][:] = numericalize(de_word2indx, _y)
+
+    ''' get text embeddings '''
+    X_emb0, backprop_X_emb0 = en_embeddings.begin_update(X_num)
+    y_emb0, backprop_y_emb0 = de_embeddings.begin_update(y_num)
+
+    ''' Text embeddings must be reshaped '''
+    X_emb1 = X_emb0.reshape(nB, nL, MODEL_SIZE)
+    y_emb1 = y_emb0.reshape(nB, nL, MODEL_SIZE)
+
+    ''' add position encodings '''
+    X = X_emb1 + X_positions[:nL]
+    y = y_emb1 + X_positions[:nL]
+    X = X.astype(Model.ops.xp.float32)
+    y = y.astype(Model.ops.xp.float32)
+
+    b0 = Batch((X, y), (X_mask, y_mask), (nX, nY))
+    if not dataset:
+        return b0, X, y, backprop_X_emb0, backprop_y_emb0, y_num
+    else:
+        return b0, y_num
 
 
 class Batch:
