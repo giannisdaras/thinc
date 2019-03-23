@@ -91,17 +91,19 @@ class Embed(Model):
         if mask is not None:
             ids = ids * (mask > 0)
         vectors = self._embed(ids)
-        dotted = self.ops.gemm(vectors, self.W, trans2=True)
+        vectors2d = vectors.reshape(-1, vectors.shape[-1])
+        dotted = self.ops.gemm(vectors2d, self.W, trans2=True)
 
         def finish_update(gradients, sgd=None):
-            self.d_W += self.ops.gemm(gradients, vectors, trans1=True)
+            self.d_W += self.ops.gemm(gradients, vectors2d, trans1=True)
             if not self.is_static:
                 gradients = self.ops.gemm(gradients, self.W)
                 d_vectors = self.d_vectors
+                ids2d = ids.reshape(-1)
                 if hasattr(self.ops.xp, "scatter_add"):
-                    self.ops.xp.scatter_add(d_vectors, ids % self.nV, gradients)
+                    self.ops.xp.scatter_add(d_vectors, ids2d % self.nV, gradients)
                 else:
-                    self.ops.xp.add.at(d_vectors, ids % self.nV, gradients)
+                    self.ops.xp.add.at(d_vectors, ids2d % self.nV, gradients)
             if sgd is not None:
                 if self.is_static:
                     sgd(self.W.ravel(), self.d_W.ravel(), key=self.id)
