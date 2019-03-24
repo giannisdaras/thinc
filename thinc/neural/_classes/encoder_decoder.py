@@ -27,7 +27,7 @@ class SeqLinear(Model):
 
         def finish_update(grad__BO, sgd=None):
             grad__BO = grad__BO.reshape(nB*nT, -1).astype(Model.ops.xp.float32)
-            return Y2d_backprop(grad__BO).reshape(initial_shape)
+            return Y2d_backprop(grad__BO, sgd=sgd).reshape(initial_shape)
         return Y, finish_update
 
 
@@ -51,7 +51,7 @@ class SeqSoftmax(Model):
 
         def finish_update(dY, sgd=None):
             dY2d = dY.reshape(nB*nL, nO)
-            dX2d = Y2d_backprop(dY2d)
+            dX2d = Y2d_backprop(dY2d, sgd=sgd)
             dX = dX2d.reshape(nB, nL, nI)
             return dX
         return Y, finish_update
@@ -93,10 +93,10 @@ class EncoderDecoder(Model):
         y3, get_dy2 = self.proj.begin_update(y2)
 
         def finish_update(dy3, sgd=None):
-            dy2 = get_dy2(dy3)
+            dy2 = get_dy2(dy3, sgd=sgd)
             _ = Model.ops.xp.zeros(dy2.shape, dtype=Model.ops.xp.float32)
-            dx1, dy1 = get_dx1_dy1((_, dy2))
-            dx0 = get_dx0(dx1)
+            dx1, dy1 = get_dx1_dy1((_, dy2), sgd=sgd)
+            dx0 = get_dx0(dx1, sgd=sgd)
             return (dx0, dy1)
 
         return y3, finish_update
@@ -116,7 +116,7 @@ class Encoder(Model):
         b1, get_dx = self.enc_stack.begin_update(b0)
 
         def finish_update(grad__BO, sgd=None):
-            return get_dx(grad__BO)
+            return get_dx(grad__BO, sgd=sgd)
         return b1, finish_update
 
 
@@ -136,7 +136,7 @@ class Decoder(Model):
 
         def finish_update(grad__BO, sgd=None):
             dX, dY = grad__BO
-            return get_dx_dy((dX, dY,))
+            return get_dx_dy((dX, dY,), sgd=sgd)
 
         return b1, finish_update
 
@@ -158,8 +158,8 @@ class EncoderLayer(Model):
         batch.X = x2
 
         def finish_update(dx2, sgd=None):
-            dx1 = get_dx1(dx2)
-            dx00, dx01 = get_dx00_dx01(dx1)
+            dx1 = get_dx1(dx2, sgd=sgd)
+            dx00, dx01 = get_dx00_dx01(dx1, sgd=sgd)
             dx = dx00 + dx01
             return dx
         return batch, finish_update
@@ -197,9 +197,9 @@ class DecoderLayer(Model):
             It seems mathematical correct, but needs test.
             '''
             dy3, dx = grad__BO
-            dy2 = get_dy2(dy3)
-            dy1, dx0 = get_dy1_dx0(dy2)
-            dy00, dy01 = get_dy00_dy01(dy1)
+            dy2 = get_dy2(dy3, sgd=sgd)
+            dy1, dx0 = get_dy1_dx0(dy2, sgd=sgd)
+            dy00, dy01 = get_dy00_dy01(dy1, sgd=sgd)
             dy0 = dy00 + dy01
             dx += dx0
             return (dx, dy0,)
@@ -251,15 +251,15 @@ class MultiHeadedAttention(Model):
         x3, get_dx2 = self.linears[-1].begin_update(x2)
 
         def finish_update(dx3, sgd=None):
-            dx2 = get_dx2(dx3)
+            dx2 = get_dx2(dx3, sgd=sgd)
             dx1 = dx2.reshape(nB, nL, nH, nD)
             dq1, dk1, dv1 = get_dq1_dk1_dv1(dx1)
             dv0 = dv1.reshape(nB, nL, nH, nD)
             dk0 = dk1.reshape(nB, nL, nH, nD)
             dq0 = dq1.reshape(nB, nL, nH, nD)
-            dy0 = get_dy0_2(dv0)
-            dy0 += get_dy0_1(dk0)
-            dx0 = get_dx0(dq0)
+            dy0 = get_dy0_2(dv0, sgd=sgd)
+            dy0 += get_dy0_1(dk0, sgd=sgd)
+            dx0 = get_dx0(dq0, sgd=sgd)
             return (dx0, dy0)
 
         return x3, finish_update
