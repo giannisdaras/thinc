@@ -229,7 +229,7 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
             y_num2d = y_num.reshape(-1)
             grad2d, loss = categorical_crossentropy(yh2d, y_num2d)
             grad = grad2d.reshape(nB, nL, nTGT)
-            dX, dY = backprop(grad, optimizer)
+            dX, dY = backprop(grad, sgd=optimizer)
             ''' the sum does not affect the grad '''
             dX_emb1, dy_emb1 = dX, dY
             dX_emb0 = dX_emb1.reshape(-1, MODEL_SIZE)
