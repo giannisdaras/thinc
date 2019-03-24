@@ -195,7 +195,7 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
     nTGT = len(de_word2indx) + 2
     en_embeddings = Embed(MODEL_SIZE, nM=MODEL_SIZE, nV=nTGT)
     de_embeddings = Embed(MODEL_SIZE, nM=MODEL_SIZE, nV=nTGT)
-    model = EncoderDecoder(nTGT=nTGT)
+    model = EncoderDecoder(nH=nH, nS=nS, nTGT=nTGT)
 
 
 
