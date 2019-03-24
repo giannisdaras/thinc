@@ -1,7 +1,7 @@
 import math
 import pdb
 from .model import Model
-from ...api import chain, clone
+from ...api import chain, clone, with_getitem
 from .softmax import Softmax
 from .layernorm import LayerNorm
 from .resnet import Residual
@@ -14,6 +14,7 @@ class SeqLinear(Model):
         self.nI = nI
         self.nO = nO
         self.linear = Affine(nI=nI, nO=nO)
+        self._layers = [self.linear]
 
     def begin_update(self, X, drop=0.0, dim=3):
         initial_shape = X.shape
@@ -37,8 +38,9 @@ class SeqSoftmax(Model):
         self.nI = nI
         self.nO = nO
         self.softmax = Softmax(nI=nI, nO=nO)
+        self._layers = [self.softmax]
 
-    def begin_update(self, X, dim=3):
+    def begin_update(self, X, drop=0.):
         # X: nB, nL, nI
         nB, nL, nI, nO = X.shape[0], X.shape[1], X.shape[2], self.nO
         # X2d: nB*nL, nI
@@ -73,96 +75,41 @@ class EncoderDecoder(Model):
         self.nH = nH
         self.nM = nM
         self.nTGT = nTGT
-        self.enc = Encoder(self.nH, self.nM, self.nS)
-        self.dec = Decoder(self.nH, self.nM, self.nS)
+        self.enc = clone(EncoderLayer(self.nH, self.nM), self.nS)
+        self.dec = clone(DecoderLayer(self.nH, self.nM), self.nS)
         self.proj = SeqSoftmax(nM, nTGT)
+        self._layers = [self.enc, self.dec, self.proj]
 
-    def begin_update(self, b0, drop=0.0):
+    def begin_update(self, inputs, drop=0.0):
         '''
         A batch object flows through the network. It contains input, output and
         corresponding masks. Input changes while the object travels through
         the network. Output is the golden output.
         Input: nB x nL x nM
         '''
+        (X0, Xmask), (Y0, Ymask) = inputs
         # b0: x0, y0
         # b1: x1, y1
         # b2: x2, y2
-        b1, get_dx0 = self.enc.begin_update(b0)
-        b2, get_dx1_dy1 = self.dec.begin_update(b1)
-        y2 = b2.y
-        y3, get_dy2 = self.proj.begin_update(y2)
+        (X1, _), get_dX0 = self.enc.begin_update((X0, Xmask), drop=drop)
+        (X2, Y1), get_dX1_dY1 = self.dec.begin_update(((X1, Xmask), (Y0, Ymask)), drop=drop)
+        Y2, get_dY1 = self.proj.begin_update(Y1, drop=drop)
 
-        def finish_update(dy3, sgd=None):
-            dy2 = get_dy2(dy3, sgd=sgd)
-            _ = Model.ops.xp.zeros(dy2.shape, dtype=Model.ops.xp.float32)
-            dx1, dy1 = get_dx1_dy1((_, dy2), sgd=sgd)
-            dx0 = get_dx0(dx1, sgd=sgd)
-            return (dx0, dy1)
+        def finish_update(dY2, sgd=None):
+            dY1 = get_dY1(dY2, sgd=sgd)
+            zeros = Model.ops.xp.zeros(X1.shape, dtype=Model.ops.xp.float32)
+            dX1, dY0 = get_dX1_dY1((zeros, dY1), sgd=sgd)
+            dX0 = get_dX0(dX1, sgd=sgd)
+            return (dX0, dY1)
 
-        return y3, finish_update
-
-
-class Encoder(Model):
-    def __init__(self, nH, nM, nS):
-        Model.__init__(self)
-        self.nH = nH
-        self.nM = nM
-        self.nS = nS
-        self.enc_stack = EncoderLayer(nH, nM)
-        for i in range(nS - 1):
-            self.enc_stack = chain(self.enc_stack, EncoderLayer(nH, nM))
-
-    def begin_update(self, b0, drop=0.0):
-        b1, get_dx = self.enc_stack.begin_update(b0)
-
-        def finish_update(grad__BO, sgd=None):
-            return get_dx(grad__BO, sgd=sgd)
-        return b1, finish_update
+        return (Y2, Ymask), finish_update
 
 
-class Decoder(Model):
-    def __init__(self, nH, nM, nS):
-        # nS: stack size
-        Model.__init__(self)
-        self.nH = nH
-        self.nM = nM
-        self.nS = nS
-        self.dec_stack = DecoderLayer(nH, nM)
-        for i in range(self.nS - 1):
-            self.dec_stack = chain(self.dec_stack, DecoderLayer(nH, nM))
-
-    def begin_update(self, b0, drop=0.0):
-        b1, get_dx_dy = self.dec_stack.begin_update(b0)
-
-        def finish_update(grad__BO, sgd=None):
-            dX, dY = grad__BO
-            return get_dx_dy((dX, dY,), sgd=sgd)
-
-        return b1, finish_update
-
-
-class EncoderLayer(Model):
-    def __init__(self, nH, nM):
-        Model.__init__(self)
-        self.nH = nH
-        self.nM = nM
-        ''' TODO: this layer should be probably made residual '''
-        self.x_attn = MultiHeadedAttention(nM, nH)
-        self.ffd = Residual(SeqLinear(nM, nM))
-
-    def begin_update(self, batch, drop=0.0):
-        x0 = batch.X
-        X_mask = batch.X_mask
-        x1, get_dx00_dx01 = self.x_attn.begin_update((x0, x0, X_mask))
-        x2, get_dx1 = self.ffd.begin_update(x1)
-        batch.X = x2
-
-        def finish_update(dx2, sgd=None):
-            dx1 = get_dx1(dx2, sgd=sgd)
-            dx00, dx01 = get_dx00_dx01(dx1, sgd=sgd)
-            dx = dx00 + dx01
-            return dx
-        return batch, finish_update
+def EncoderLayer(nH, nM):
+    return chain(
+        MultiHeadedAttention(nM, nH),
+        with_getitem(0, Residual(SeqLinear(nM, nM)))
+    )
 
 
 class DecoderLayer(Model):
@@ -174,19 +121,15 @@ class DecoderLayer(Model):
         self.x_attn = MultiHeadedAttention(nM, nH)
         self.y_attn = MultiHeadedAttention(nM, nH)
         self.ffd = SeqLinear(nM, nM)
-        self.residuals = [self.x_attn, self.y_attn, Residual(self.ffd)]
+        self._layers = [self.x_attn, self.y_attn, self.ffd]
 
-    def begin_update(self, batch, drop=0.0):
-        x0 = batch.X
-        y0 = batch.y
-        X_mask = batch.X_mask
-        y_mask = batch.y_mask
-        y1, get_dy00_dy01 = self.residuals[0].begin_update((y0, y0, y_mask))
-        y2, get_dy1_dx0 = self.residuals[1].begin_update((y1, x0, X_mask))
-        y3, get_dy2 = self.ffd.begin_update(y2)
-        batch.y = y3
+    def begin_update(self, X_Y, drop=0.0):
+        (X0, Xmask), (Y0, Ymask) = X_Y
+        (Y1, _), get_dY00_dY01 = self.x_attn.begin_update((Y0, Y0, Ymask))
+        (Y2, _), get_dY1_dX0 = self.y_attn.begin_update((Y1, X0, Xmask))
+        Y3, get_dY2 = self.ffd.begin_update(Y2)
 
-        def finish_update(grad__BO, sgd=None):
+        def finish_update(dY3_dX0, sgd=None):
             ''' TODO: we have to discuss if this is actually correct
             The loss function regards only the EncoderDecoder output, and not
             the EncoderDecoder input. But actually, we need to calculate
@@ -196,15 +139,15 @@ class DecoderLayer(Model):
             while we are inside the decoder stack.
             It seems mathematical correct, but needs test.
             '''
-            dy3, dx = grad__BO
-            dy2 = get_dy2(dy3, sgd=sgd)
-            dy1, dx0 = get_dy1_dx0(dy2, sgd=sgd)
-            dy00, dy01 = get_dy00_dy01(dy1, sgd=sgd)
-            dy0 = dy00 + dy01
-            dx += dx0
-            return (dx, dy0,)
+            dY3, dX = dY3_dX0
+            dY2 = get_dY2(dY3, sgd=sgd)
+            dY1, dX0 = get_dY1_dX0(dY2, sgd=sgd)
+            dY00, dY01 = get_dY00_dY01(dY1, sgd=sgd)
+            dY0 = dY00 + dY01
+            dX += dX0
+            return (dX, dY0,)
 
-        return batch, finish_update
+        return (X0, Y3), finish_update
 
 
 class MultiHeadedAttention(Model):
@@ -223,9 +166,16 @@ class MultiHeadedAttention(Model):
         self.nM = nM  # model size: the length of the embeddings
         self.nD = nM // nH
         self.linears = [SeqLinear(nM, nM) for i in range(4)]
+        self._layers = list(self.linears)
 
     def begin_update(self, input, drop=0.0):
-        x0, y0, mask = input
+        if len(input) == 2:
+            x0, mask = input
+            y0 = x0
+            self_attention = True
+        else:
+            self_attention = False
+            x0, y0, mask = input
         ''' Shapes '''
         # x0: nB, nL, nM
         # q0: nB, nL, nM
@@ -260,9 +210,11 @@ class MultiHeadedAttention(Model):
             dy0 = get_dy0_2(dv0, sgd=sgd)
             dy0 += get_dy0_1(dk0, sgd=sgd)
             dx0 = get_dx0(dq0, sgd=sgd)
-            return (dx0, dy0)
-
-        return x3, finish_update
+            if self_attention:
+                return dx0 + dy0
+            else:
+                return (dx0, dy0)
+        return (x3, mask), finish_update
 
     def attn(self, Q, K, V, mask=None):
         ''' Compute attention on (query, key, value) triplet '''

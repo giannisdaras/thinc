@@ -183,7 +183,7 @@ def create_batch():
             return dXs, dYs
 
         batch = Batch((Xs, Ys), (X_mask, Y_mask), (nX, nY))
-        return batch, create_batch_backward
+        return ((batch.X, batch.X_mask), (batch.y, batch.y_mask)), create_batch_backward
     model = layerize(create_batch_forward)
     return model
 
@@ -255,7 +255,7 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
             >> apply_layers(
                 with_flatten(Embed(MODEL_SIZE, nM=MODEL_SIZE, nV=nTGT)),
                 with_flatten(Embed(MODEL_SIZE, nM=MODEL_SIZE, nV=nTGT)))
-            >> apply_layers(Residual(position_encode), Residual(position_encode))
+            #>> apply_layers(Residual(position_encode), Residual(position_encode))
             >> create_batch()
             >> EncoderDecoder(nTGT=nTGT)
         )
