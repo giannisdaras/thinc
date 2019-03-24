@@ -128,6 +128,7 @@ def set_numeric_ids(vocab, docs, vocab_size=0, force_include=("<eos>", "<bos>"))
     """Count word frequencies and use them to set the lex.rank attribute."""
     freqs = Counter()
     for doc in docs:
+        assert doc.vocab is vocab
         for token in doc:
             freqs[token.orth] += 1
     rank = 1
@@ -137,7 +138,7 @@ def set_numeric_ids(vocab, docs, vocab_size=0, force_include=("<eos>", "<bos>"))
         lex = vocab[word]
         lex.rank = rank
         rank += 1
-    for orth, count in enumerate(freqs.most_common()):
+    for orth, count in freqs.most_common():
         lex = vocab[orth]
         if lex.text not in force_include:
             rank += 1
@@ -236,8 +237,9 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
                                     test_X[-lim:], test_Y[-lim:], MAX_LENGTH)
     set_numeric_ids(nlp_en.vocab, train_X, vocab_size=VOCAB_SIZE,
         force_include=("<eos>", "<bos>"))
-    set_numeric_ids(nlp_de.vocab, train_Y)
-    nTGT = VOCAB_SIZE
+    set_numeric_ids(nlp_de.vocab, train_Y, vocab_size=VOCAB_SIZE,
+        force_include=("<eos>", "<bos>"))
+    nTGT = VOCAB_SIZE+10
 
     with Model.define_operators({">>": chain}):
         position_encode = PositionEncode(MAX_LENGTH, MODEL_SIZE)
