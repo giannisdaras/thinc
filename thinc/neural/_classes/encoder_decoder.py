@@ -15,16 +15,15 @@ def with_reshape(layer):
         nB = X.shape[0]
         nT = X.shape[1]
         X2d = X.reshape(-1, X.shape[2])
-        X2d = X2d.astype(model.ops.xp.float32)
+        X2d = X2d.astype(layer.ops.xp.float32)
         Y2d, Y2d_backprop = layer.begin_update(X2d, drop=drop)
         Y = Y2d.reshape(final_shape)
 
         def with_reshape_backward(dY, sgd=None):
-            dY = dY.reshape(nB*nT, -1).astype(model.ops.xp.float32)
+            dY = dY.reshape(nB*nT, -1).astype(layer.ops.xp.float32)
             return Y2d_backprop(dY, sgd=sgd).reshape(initial_shape)
         return Y, with_reshape_backward
-    model = wrap(with_reshape_forward, layer)
-    return model
+    return wrap(with_reshape_forward, layer)
 
 
 class EncoderDecoder(Model):
@@ -60,7 +59,7 @@ class EncoderDecoder(Model):
         # b1: x1, y1
         # b2: x2, y2
         (X1, _), get_dX0 = self.enc.begin_update((X0, Xmask), drop=drop)
-        (_, Y1), get_dX1_dY1 = self.dec.begin_update(((X1, Xmask), (Y0, Ymask)), drop=drop)
+        (_, (Y1, _)), get_dX1_dY1 = self.dec.begin_update(((X1, Xmask), (Y0, Ymask)), drop=drop)
         word_probs, get_dY1 = self.proj.begin_update(Y1, drop=drop)
 
         def finish_update(d_word_probs, sgd=None):
@@ -106,7 +105,7 @@ class DecoderLayer(Model):
             dX += dX0
             return (dX, dY0,)
 
-        return (X0, Y3), finish_update
+        return ((X0, Xmask), (Y3, Ymask)), finish_update
 
 
 class MultiHeadedAttention(Model):
