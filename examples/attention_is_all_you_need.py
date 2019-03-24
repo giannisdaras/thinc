@@ -96,6 +96,8 @@ def docs2ids(docs, drop=0.):
         if "ids" not in doc.user_data:
             doc.user_data["ids"] = ops.asarray(doc.to_array(ID), dtype='int32')
         ids.append(doc.user_data["ids"])
+        if not (ids[-1] != 0).all():
+            raise ValueError(ids[-1])
     return ids, None
 
 
@@ -130,7 +132,8 @@ def set_numeric_ids(vocab, docs, vocab_size=0, force_include=("<oov>", "<eos>", 
     for doc in docs:
         assert doc.vocab is vocab
         for token in doc:
-            freqs[token.orth] += 1
+            lex = vocab[token.orth]
+            freqs[lex.orth] += 1
     rank = 1
     for word in force_include:
         lex = vocab[word]
@@ -143,11 +146,17 @@ def set_numeric_ids(vocab, docs, vocab_size=0, force_include=("<oov>", "<eos>", 
     for orth, count in freqs.most_common():
         lex = vocab[orth]
         if lex.text not in force_include:
-            rank += 1
             lex.rank = rank
+            rank += 1
         if vocab_size != 0 and rank >= vocab_size:
             break
-    vocab.lex_attr_getters[ID] = lambda word: vocab["<oov>"].rank
+    vocab.lex_attr_getters[ID] = lambda word: oov_rank
+    output_docs = []
+    for doc in docs:
+        output_docs.append(Doc(vocab, words=[w.text for w in doc]))
+        for token in output_docs[-1]:
+            assert token.rank != 0, (token.text, token.vocab[token.text].rank)
+    return output_docs
 
 
 def resize_vectors(vectors):
@@ -202,6 +211,7 @@ def _create_mask(ops, lengths, max_sent):
 
 def get_loss(ops, Yh, Y_docs, Y_mask):
     Y_ids = docs2ids(Y_docs)
+    guesses = Yh.argmax(axis=-1)
     nC = Yh.shape[-1]
     Y = [to_categorical(y, nb_classes=nC) for y in Y_ids]
     nL = max(Yh.shape[1], max(y.shape[0] for y in Y))
@@ -221,7 +231,7 @@ def get_loss(ops, Yh, Y_docs, Y_mask):
     use_gpu=("Which GPU to use. -1 for CPU", "option", "g", int),
     lim=("Number of sentences to load from dataset", "option", "l", int)
 )
-def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
+def main(nH=2, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
     if use_gpu != -1:
         # TODO: Make specific to different devices, e.g. 1 vs 0
         spacy.require_gpu()
@@ -242,10 +252,8 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
                                   dev_X[-lim:], dev_Y[-lim:], MAX_LENGTH)
     test_X, test_Y = spacy_tokenize(nlp_en.tokenizer, nlp_de.tokenizer,
                                     test_X[-lim:], test_Y[-lim:], MAX_LENGTH)
-    set_numeric_ids(nlp_en.vocab, train_X, vocab_size=VOCAB_SIZE,
-        force_include=("<eos>", "<bos>"))
-    set_numeric_ids(nlp_de.vocab, train_Y, vocab_size=VOCAB_SIZE,
-        force_include=("<eos>", "<bos>"))
+    train_X = set_numeric_ids(nlp_en.vocab, train_X, vocab_size=VOCAB_SIZE)
+    train_Y = set_numeric_ids(nlp_de.vocab, train_Y, vocab_size=VOCAB_SIZE)
     nTGT = VOCAB_SIZE+1
 
     with Model.define_operators({">>": chain}):
@@ -257,7 +265,7 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
                 with_flatten(Embed(MODEL_SIZE, nM=MODEL_SIZE, nV=nTGT)))
             #>> apply_layers(Residual(position_encode), Residual(position_encode))
             >> create_batch()
-            >> EncoderDecoder(nTGT=nTGT)
+            >> EncoderDecoder(nS=nS, nH=nH, nTGT=nTGT)
         )
 
     losses = [0.]
@@ -288,8 +296,9 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
         trainer.dropout_decay = 1e-4
         trainer.each_epoch.append(track_progress)
         for X, Y in trainer.iterate(train_X, train_Y):
-            (Yh, Y_mask), backprop = model.begin_update((X, Y), drop=dropout)
-            dYh = get_loss(model.ops, Yh, Y, Y_mask)
+            (Yh, Y_mask), backprop = model.begin_update((X, X), drop=dropout)
+            #dYh = get_loss(model.ops, Yh, Y, Y_mask)
+            dYh = get_loss(model.ops, Yh, X, Y_mask)
             backprop(dYh, sgd=optimizer)
             losses[-1] += (dYh**2).sum()
             #train_accuracies[-1] += accuracy
