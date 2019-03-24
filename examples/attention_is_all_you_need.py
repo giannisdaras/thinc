@@ -9,7 +9,7 @@ from thinc.extra.datasets import get_iwslt
 from thinc.loss import categorical_crossentropy
 from thinc.neural.util import get_array_module
 from spacy._ml import link_vectors_to_models
-from thinc.neural.util import to_categorical
+from thinc.neural.util import to_categorical, minibatch
 from thinc.neural._classes.encoder_decoder import EncoderDecoder
 from thinc.neural._classes.embed import Embed
 from thinc.api import wrap, chain, with_flatten, layerize
@@ -124,7 +124,7 @@ def apply_layers(*layers):
     return wrap(apply_layers_forward, *layers)
 
 
-def set_numeric_ids(vocab, docs, vocab_size=0, force_include=("<eos>", "<bos>")):
+def set_numeric_ids(vocab, docs, vocab_size=0, force_include=("<oov>", "<eos>", "<bos>")):
     """Count word frequencies and use them to set the lex.rank attribute."""
     freqs = Counter()
     for doc in docs:
@@ -132,12 +132,14 @@ def set_numeric_ids(vocab, docs, vocab_size=0, force_include=("<eos>", "<bos>"))
         for token in doc:
             freqs[token.orth] += 1
     rank = 1
-    for lex in vocab:
-        lex.rank = 0
     for word in force_include:
         lex = vocab[word]
         lex.rank = rank
         rank += 1
+    oov_rank = vocab["<oov>"].rank
+    for lex in vocab:
+        if lex.text not in force_include:
+            lex.rank = oov_rank
     for orth, count in freqs.most_common():
         lex = vocab[orth]
         if lex.text not in force_include:
@@ -145,6 +147,7 @@ def set_numeric_ids(vocab, docs, vocab_size=0, force_include=("<eos>", "<bos>"))
             lex.rank = rank
         if vocab_size != 0 and rank >= vocab_size:
             break
+    vocab.lex_attr_getters[ID] = lambda word: vocab["<oov>"].rank
 
 
 def resize_vectors(vectors):
@@ -197,17 +200,21 @@ def _create_mask(ops, lengths, max_sent):
     return mask
 
 
-def get_loss(ops, Yh, Y_docs):
+def get_loss(ops, Yh, Y_docs, Y_mask):
     Y_ids = docs2ids(Y_docs)
     nC = Yh.shape[-1]
     Y = [to_categorical(y, nb_classes=nC) for y in Y_ids]
     nL = max(Yh.shape[1], max(y.shape[0] for y in Y))
     Y, _, _ = ops.square_sequences(Y, pad_to=nL)
-    return Yh-Y.transpose((1, 0, 2))
+    Y = Y.transpose((1, 0, 2))
+    # Need the mask to get this right I think? Not sure what to do.
+    #accuracy = (Yh.argmax(axis=-1) == Y.argmax(axis=-1)).sum()
+    return Yh-Y
+
 
 @plac.annotations(
     nH=("number of heads of the multiheaded attention", "option", "nH", int),
-    dropout=("model dropout", "option"),
+    dropout=("model dropout", "option", "d", float),
     nS=('Number of encoders/decoder in the enc/dec stack.', "option", "nS", int),
     nB=('Batch size for the training', "option", "nB", int),
     nE=('Number of epochs for the training', "option", "nE", int),
@@ -239,7 +246,7 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
         force_include=("<eos>", "<bos>"))
     set_numeric_ids(nlp_de.vocab, train_Y, vocab_size=VOCAB_SIZE,
         force_include=("<eos>", "<bos>"))
-    nTGT = VOCAB_SIZE+10
+    nTGT = VOCAB_SIZE+1
 
     with Model.define_operators({">>": chain}):
         position_encode = PositionEncode(MAX_LENGTH, MODEL_SIZE)
@@ -254,9 +261,26 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
         )
 
     losses = [0.]
+    train_accuracies = [0.]
+    dev_accuracies = [0.]
+    dev_loss = [0.]
     def track_progress():
-        print(len(losses), losses[-1])
+        correct = 0.
+        total = 0.
+        for batch in minibatch(zip(dev_X, dev_Y), size=1024):
+            X, Y = zip(*batch)
+            Yh, Y_mask = model((X, Y))
+            L = get_loss(model.ops, Yh, Y, Y_mask)
+            #correct += C
+            dev_loss[-1] += (L**2).sum()
+            total += len(Y)
+        #dev_accuracies[-1] = correct / total
+        #print(len(losses), losses[-1], train_accuracies[-1], dev_loss[-1], dev_accuracies[-1])
+        print(len(losses), losses[-1], dev_loss[-1])
+        dev_loss.append(0.)
         losses.append(0.)
+        train_accuracies.append(0.)
+        dev_accuracies.append(0.)
 
 
     with model.begin_training(batch_size=nB, nb_epoch=nE) as (trainer, optimizer):
@@ -264,10 +288,11 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
         trainer.dropout_decay = 1e-4
         trainer.each_epoch.append(track_progress)
         for X, Y in trainer.iterate(train_X, train_Y):
-            Yh, backprop = model.begin_update((X, Y), drop=0.2)
-            dYh = get_loss(model.ops, Yh, Y)
+            (Yh, Y_mask), backprop = model.begin_update((X, Y), drop=dropout)
+            dYh = get_loss(model.ops, Yh, Y, Y_mask)
             backprop(dYh, sgd=optimizer)
             losses[-1] += (dYh**2).sum()
+            #train_accuracies[-1] += accuracy
 
 
 if __name__ == '__main__':
