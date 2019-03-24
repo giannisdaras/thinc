@@ -1,62 +1,30 @@
 import math
 import pdb
 from .model import Model
-from ...api import chain, clone, with_getitem
+from ...api import chain, clone, with_getitem, wrap
 from .softmax import Softmax
 from .layernorm import LayerNorm
 from .resnet import Residual
 from .affine import Affine
 
 
-class SeqLinear(Model):
-    def __init__(self, nI=300, nO=300):
-        Model.__init__(self)
-        self.nI = nI
-        self.nO = nO
-        self.linear = Affine(nI=nI, nO=nO)
-        self._layers = [self.linear]
-
-    def begin_update(self, X, drop=0.0, dim=3):
+def with_reshape(layer):
+    def with_reshape_forward(X, drop=0.):
         initial_shape = X.shape
-        final_shape = list(initial_shape[:-1]) + [self.nO]
+        final_shape = list(initial_shape[:-1]) + [layer.nO]
         nB = X.shape[0]
         nT = X.shape[1]
         X2d = X.reshape(-1, X.shape[2])
-        X2d = X2d.astype(Model.ops.xp.float32)
-        Y2d, Y2d_backprop = self.linear.begin_update(X2d)
+        X2d = X2d.astype(model.ops.xp.float32)
+        Y2d, Y2d_backprop = layer.begin_update(X2d, drop=drop)
         Y = Y2d.reshape(final_shape)
 
-        def finish_update(grad__BO, sgd=None):
-            grad__BO = grad__BO.reshape(nB*nT, -1).astype(Model.ops.xp.float32)
-            return Y2d_backprop(grad__BO, sgd=sgd).reshape(initial_shape)
-        return Y, finish_update
-
-
-class SeqSoftmax(Model):
-    def __init__(self, nI=300, nO=300):
-        Model.__init__(self)
-        self.nI = nI
-        self.nO = nO
-        self.softmax = Softmax(nI=nI, nO=nO)
-        self._layers = [self.softmax]
-
-    def begin_update(self, X, drop=0.):
-        # X: nB, nL, nI
-        nB, nL, nI, nO = X.shape[0], X.shape[1], X.shape[2], self.nO
-        # X2d: nB*nL, nI
-        X2d = X.reshape(nB*nL, nI)
-        # Y2d: nB*nL, nO
-        X2d = X2d.astype(Model.ops.xp.float32)
-        Y2d, Y2d_backprop = self.softmax.begin_update(X2d)
-        # Y: nB, nL, nO
-        Y = Y2d.reshape(nB, nL, nO)
-
-        def finish_update(dY, sgd=None):
-            dY2d = dY.reshape(nB*nL, nO)
-            dX2d = Y2d_backprop(dY2d, sgd=sgd)
-            dX = dX2d.reshape(nB, nL, nI)
-            return dX
-        return Y, finish_update
+        def with_reshape_backward(dY, sgd=None):
+            dY = dY.reshape(nB*nT, -1).astype(model.ops.xp.float32)
+            return Y2d_backprop(dY, sgd=sgd).reshape(initial_shape)
+        return Y, with_reshape_backward
+    model = wrap(with_reshape_forward, layer)
+    return model
 
 
 class EncoderDecoder(Model):
@@ -77,7 +45,7 @@ class EncoderDecoder(Model):
         self.nTGT = nTGT
         self.enc = clone(EncoderLayer(self.nH, self.nM), self.nS)
         self.dec = clone(DecoderLayer(self.nH, self.nM), self.nS)
-        self.proj = SeqSoftmax(nM, nTGT)
+        self.proj = with_reshape(Softmax(nO=nTGT, nI=nM))
         self._layers = [self.enc, self.dec, self.proj]
 
     def begin_update(self, inputs, drop=0.0):
@@ -92,23 +60,23 @@ class EncoderDecoder(Model):
         # b1: x1, y1
         # b2: x2, y2
         (X1, _), get_dX0 = self.enc.begin_update((X0, Xmask), drop=drop)
-        (X2, Y1), get_dX1_dY1 = self.dec.begin_update(((X1, Xmask), (Y0, Ymask)), drop=drop)
-        Y2, get_dY1 = self.proj.begin_update(Y1, drop=drop)
+        (_, Y1), get_dX1_dY1 = self.dec.begin_update(((X1, Xmask), (Y0, Ymask)), drop=drop)
+        word_probs, get_dY1 = self.proj.begin_update(Y1, drop=drop)
 
-        def finish_update(dY2, sgd=None):
-            dY1 = get_dY1(dY2, sgd=sgd)
+        def finish_update(d_word_probs, sgd=None):
+            dY1 = get_dY1(d_word_probs, sgd=sgd)
             zeros = Model.ops.xp.zeros(X1.shape, dtype=Model.ops.xp.float32)
             dX1, dY0 = get_dX1_dY1((zeros, dY1), sgd=sgd)
             dX0 = get_dX0(dX1, sgd=sgd)
             return (dX0, dY1)
 
-        return (Y2, Ymask), finish_update
+        return (word_probs, Ymask), finish_update
 
 
 def EncoderLayer(nH, nM):
     return chain(
         MultiHeadedAttention(nM, nH),
-        with_getitem(0, Residual(SeqLinear(nM, nM)))
+        with_getitem(0, Residual(with_reshape(Affine(nM, nM))))
     )
 
 
@@ -120,7 +88,7 @@ class DecoderLayer(Model):
         ''' TODO: the following two layers should be probably residuals '''
         self.x_attn = MultiHeadedAttention(nM, nH)
         self.y_attn = MultiHeadedAttention(nM, nH)
-        self.ffd = SeqLinear(nM, nM)
+        self.ffd = with_reshape(Affine(nM, nM))
         self._layers = [self.x_attn, self.y_attn, self.ffd]
 
     def begin_update(self, X_Y, drop=0.0):
@@ -130,15 +98,6 @@ class DecoderLayer(Model):
         Y3, get_dY2 = self.ffd.begin_update(Y2)
 
         def finish_update(dY3_dX0, sgd=None):
-            ''' TODO: we have to discuss if this is actually correct
-            The loss function regards only the EncoderDecoder output, and not
-            the EncoderDecoder input. But actually, we need to calculate
-            how much the transformed input affects the output, so we can
-            backpropagate the Encoder layer later.
-            The proposed method is to start with a zero grad and increase it
-            while we are inside the decoder stack.
-            It seems mathematical correct, but needs test.
-            '''
             dY3, dX = dY3_dX0
             dY2 = get_dY2(dY3, sgd=sgd)
             dY1, dX0 = get_dY1_dX0(dY2, sgd=sgd)
@@ -165,7 +124,7 @@ class MultiHeadedAttention(Model):
         self.nH = nH
         self.nM = nM  # model size: the length of the embeddings
         self.nD = nM // nH
-        self.linears = [SeqLinear(nM, nM) for i in range(4)]
+        self.linears = [with_reshape(Affine(nM, nM)) for i in range(4)]
         self._layers = list(self.linears)
 
     def begin_update(self, input, drop=0.0):
