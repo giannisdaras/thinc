@@ -68,7 +68,7 @@ def spacy_tokenize(X_tokenizer, Y_tokenizer, X, Y, max_length=50):
     X_out = []
     Y_out = []
     for x, y in zip(X, Y):
-        xdoc = X_tokenizer('<bos> ' + x.strip() + ' <eos>')
+        xdoc = X_tokenizer(x.strip())
         ydoc = Y_tokenizer('<bos> <bos>' + y.strip() + ' <eos>')
         if len(xdoc) < MAX_LENGTH and (len(ydoc) + 2) < MAX_LENGTH:
             X_out.append(xdoc)
