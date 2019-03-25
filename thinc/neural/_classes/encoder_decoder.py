@@ -227,17 +227,20 @@ class MultiHeadedAttention(Model):
         return S.reshape((nB, nH, nL, nL)), backprop_attn1
 
     def _attn2(self, S0, mask):
-        S1 = S0.transpose(1, 0, 2, 3)
-        S2 = S1 * mask - (1 - mask) * (1e9)
-        S3 = S2.transpose(1, 0, 2, 3)
+        if mask is not None:
+            S1 = S0.transpose(1, 0, 2, 3)
+            S2 = S1 * mask - (1 - mask) * (1e9)
+            S3 = S2.transpose(1, 0, 2, 3)
 
-        def backprop_attn2(dS3):
-            dS2 = dS3.transpose(1, 0, 2, 3)
-            dS1 = dS2 * mask
-            dS0 = dS1.transpose(1, 0, 2, 3)
-            return dS0
+            def backprop_attn2(dS3):
+                dS2 = dS3.transpose(1, 0, 2, 3)
+                dS1 = dS2 * mask
+                dS0 = dS1.transpose(1, 0, 2, 3)
+                return dS0
 
-        return S3, backprop_attn2
+            return S3, backprop_attn2
+        else:
+            return S0, lambda x: x
 
     def _attn3(self, S0):
         ''' A simple softmax to the scores '''
