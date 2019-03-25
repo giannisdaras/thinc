@@ -92,8 +92,12 @@ class DecoderLayer(Model):
 
     def begin_update(self, X_Y, drop=0.0):
         (X0, Xmask), (Y0, Ymask) = X_Y
-        (Y1, _), get_dY00_dY01 = self.x_attn.begin_update((Y0, Y0, Ymask))
-        (Y2, _), get_dY1_dX0 = self.y_attn.begin_update((Y1, X0, Xmask))
+        (Y1, _), get_dY00_dY01 = self.y_attn.begin_update((Y0, Y0, Ymask))
+        # Arg0 to the multi-head attention is the queries,
+        # which is the outputs (Y) for the decoder.
+        # I'm not sure, but I think this needs Ymask? We don't want to attend
+        # over the future elements in the decoder.
+        (Y2, _), get_dY1_dX0 = self.x_attn.begin_update((Y1, X0, Ymask))
         Y3, get_dY2 = self.ffd.begin_update(Y2)
 
         def finish_update(dY3_dX0, sgd=None):
@@ -127,6 +131,7 @@ class MultiHeadedAttention(Model):
         self._layers = list(self.linears)
 
     def begin_update(self, input, drop=0.0):
+        # Queries come from inpit[0], keys and values from input[1]
         if len(input) == 2:
             x0, mask = input
             y0 = x0
