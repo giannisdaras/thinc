@@ -23,45 +23,33 @@ import pickle
 import sys
 MODEL_SIZE = 300
 MAX_LENGTH = 50
-VOCAB_SIZE = 5000
+VOCAB_SIZE = 20
+
+random.seed(0)
+numpy.random.seed(0)
 
 
 class Batch:
     ''' Objects of this class share pairs X,Y along with their
         padding/future-words-hiding masks '''
-    def __init__(self, pair, pad_masks, lengths):
+    def __init__(self, pair, lengths):
         # X, y: nB x nL x nM
         # X_pad_mask, y_pad_mask: nB x nL
         # X_mask, y_mask: nB x nL x nL
         X, y = pair
-        self.X_pad_mask, self.y_pad_mask = pad_masks
         nX, nY = lengths
-        ''' TODO: this is super clumpsy and we need to fix this, but at least
-        is happening only once ber batch, so it's acceptable for now '''
+        self.X = X
         self.y = y
         self.nB = X.shape[0]
         self.nL = X.shape[1]
-        self.X = X
-        self.X_mask = Model.ops.xp.repeat(self.X_pad_mask[:, :, Model.ops.xp.newaxis], self.nL, axis=2)
-        ''' Explanation:
-        y_mask has different dimensions than x_pad mask, because the mask
-        itself is responsible for the different "steps" in the decoder
-        architecture. That actually means, that y_mask should not only mask the
-        pad tokens, but take care of avoiding attention to future positions.
-        y_mask has shape: nB x nL x nL, to hold the different masks for the
-        different tokens. To get to that 3d array from y_pad_mask and
-        subsequent mask (which are 2d arrays), we insert a fake dimension
-        for successfull broadcasting.
-        '''
-        # (nB, 1, nL) & (1, nL, nL) --> (nB, nL, nL)
-        y_pad_mask_expand = Model.ops.xp.expand_dims(self.y_pad_mask, -2)
-        subsequent_mask = self.subsequent_mask(self.nL)
-        assert y_pad_mask_expand.shape == (self.nB, 1, self.nL)
-        assert subsequent_mask.shape == (1, self.nL, self.nL)
-        self.y_mask = y_pad_mask_expand & subsequent_mask
+        self.X_mask = Model.ops.allocate((self.nB, self.nL, self.nL), dtype='bool')
+        self.y_mask = Model.ops.allocate((self.nB, self.nL, self.nL), dtype='bool')
+        for i, length in enumerate(nX):
+            self.X_mask[i, :length, :length] = 1
+        for i, length in enumerate(nY):
+            for j in range(length):
+                self.y_mask[i, j, :j+1] = 1
 
-    def subsequent_mask(self, nL):
-        return (Model.ops.xp.triu(Model.ops.xp.ones([1, nL, nL]), k=1) == 0)
 
 
 def spacy_tokenize(X_tokenizer, Y_tokenizer, X, Y, max_length=50):
@@ -69,7 +57,7 @@ def spacy_tokenize(X_tokenizer, Y_tokenizer, X, Y, max_length=50):
     Y_out = []
     for x, y in zip(X, Y):
         xdoc = X_tokenizer('<bos> ' + x.strip() + ' <eos>')
-        ydoc = Y_tokenizer('<bos> <bos>' + y.strip() + ' <eos>')
+        ydoc = Y_tokenizer('<bos> ' + y.strip() + ' <eos>')
         if len(xdoc) < MAX_LENGTH and (len(ydoc) + 2) < MAX_LENGTH:
             X_out.append(xdoc)
             Y_out.append(ydoc)
@@ -182,34 +170,19 @@ def create_batch():
         Xs = Xs.transpose((1, 0, 2))
         Ys = Ys.transpose((1, 0, 2))
 
-        X_mask = _create_mask(model.ops, nX, nL)
-        Y_mask = _create_mask(model.ops, nY, nL)
-
         def create_batch_backward(dXs_dYs, sgd=None):
             dXs, dYs = dXs_dYs
             dXs = unpad_dXs(dXs.transpose((1, 0, 2)))
             dYs = unpad_dYs(dYs.transpose((1, 0, 2)))
             return dXs, dYs
 
-        batch = Batch((Xs, Ys), (X_mask, Y_mask), (nX, nY))
+        batch = Batch((Xs, Ys), (nX, nY))
         return ((batch.X, batch.X_mask), (batch.y, batch.y_mask)), create_batch_backward
     model = layerize(create_batch_forward)
     return model
 
 
-def _create_mask(ops, lengths, max_sent):
-    batch_size = len(lengths)
-    mask = ops.xp.ones([batch_size, max_sent], dtype=ops.xp.int)
-    for i in range(len(lengths)):
-        pad_size = max_sent - lengths[i]
-        # !his if is a bit ugly, but slicing gets really
-        # weird if you end up with a zero here.
-        if pad_size > 0:
-            mask[i, pad_size:] = 0
-    return mask
-
-
-def get_loss(ops, Yh, Y_docs, Y_mask):
+def get_loss(ops, Yh, Y_docs, Xmask):
     Y_ids = docs2ids(Y_docs)
     guesses = Yh.argmax(axis=-1)
     nC = Yh.shape[-1]
@@ -217,9 +190,15 @@ def get_loss(ops, Yh, Y_docs, Y_mask):
     nL = max(Yh.shape[1], max(y.shape[0] for y in Y))
     Y, _, _ = ops.square_sequences(Y, pad_to=nL)
     Y = Y.transpose((1, 0, 2))
-    # Need the mask to get this right I think? Not sure what to do.
-    #accuracy = (Yh.argmax(axis=-1) == Y.argmax(axis=-1)).sum()
-    return Yh-Y
+    # TODO: Right-shift. At timestep 0 we *see* <bos> and predict word 0
+    # At gold[0] is <bos>, so our predictions are right-shifted.
+    #Yh[1:] = Yh[:-1]
+    is_accurate = (Yh.argmax(axis=-1) == Y.argmax(axis=-1))
+    d_loss = Yh-Y 
+    for i, doc in enumerate(Y_docs):
+        is_accurate[i, len(doc):] = 0
+        d_loss[i, len(doc):] = 0
+    return d_loss, is_accurate.sum()
 
 
 @plac.annotations(
