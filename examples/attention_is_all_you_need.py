@@ -150,17 +150,6 @@ def set_numeric_ids(vocab, docs, vocab_size=0, force_include=("<oov>", "<eos>", 
     return output_docs
 
 
-def resize_vectors(vectors):
-    xp = get_array_module(vectors.data)
-    shape = (int(vectors.shape[0]*1.1), vectors.shape[1])
-    if not hasattr(xp, 'resize'):
-        vectors.data = vectors.data.get()
-        vectors.resize(shape)
-        vectors.data = xp.array(vectors.data)
-    else:
-        vectors.resize(shape)
-
-
 def create_batch():
     def create_batch_forward(Xs_Ys, drop=0.):
         Xs, Ys = Xs_Ys
@@ -193,9 +182,6 @@ def get_loss(ops, Yh, Y_docs, Xmask):
     nL = max(Yh.shape[1], max(y.shape[0] for y in Y))
     Y, _, _ = ops.square_sequences(Y, pad_to=nL)
     Y = Y.transpose((1, 0, 2))
-    # TODO: Right-shift. At timestep 0 we *see* <bos> and predict word 0
-    # At gold[0] is <bos>, so our predictions are right-shifted.
-    #Yh[1:] = Yh[:-1]
     is_accurate = (Yh.argmax(axis=-1) == Y.argmax(axis=-1))
     d_loss = Yh-Y 
     for i, doc in enumerate(Y_docs):
@@ -213,7 +199,7 @@ def get_loss(ops, Yh, Y_docs, Xmask):
     use_gpu=("Which GPU to use. -1 for CPU", "option", "g", int),
     lim=("Number of sentences to load from dataset", "option", "l", int)
 )
-def main(nH=2, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
+def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
     if use_gpu != -1:
         # TODO: Make specific to different devices, e.g. 1 vs 0
         spacy.require_gpu()
@@ -245,13 +231,14 @@ def main(nH=2, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
             >> apply_layers(
                 with_flatten(Embed(MODEL_SIZE, nM=MODEL_SIZE, nV=nTGT)),
                 with_flatten(Embed(MODEL_SIZE, nM=MODEL_SIZE, nV=nTGT)))
-            #>> apply_layers(Residual(position_encode), Residual(position_encode))
+            >> apply_layers(Residual(position_encode), Residual(position_encode))
             >> create_batch()
             >> EncoderDecoder(nS=nS, nH=nH, nTGT=nTGT)
         )
 
     losses = [0.]
     train_accuracies = [0.]
+    train_totals = [0.]
     dev_accuracies = [0.]
     dev_loss = [0.]
     def track_progress():
@@ -260,29 +247,34 @@ def main(nH=2, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
         for batch in minibatch(zip(dev_X, dev_Y), size=1024):
             X, Y = zip(*batch)
             Yh, Y_mask = model((X, Y))
-            L = get_loss(model.ops, Yh, Y, Y_mask)
-            #correct += C
+            L, C = get_loss(model.ops, Yh, Y, Y_mask)
+            correct += C
             dev_loss[-1] += (L**2).sum()
             total += len(Y)
-        #dev_accuracies[-1] = correct / total
-        #print(len(losses), losses[-1], train_accuracies[-1], dev_loss[-1], dev_accuracies[-1])
-        print(len(losses), losses[-1], dev_loss[-1])
+        dev_accuracies[-1] = correct / total
+        n_train = train_totals[-1]
+        print(len(losses), losses[-1], train_accuracies[-1]/n_train, dev_loss[-1], dev_accuracies[-1])
         dev_loss.append(0.)
         losses.append(0.)
         train_accuracies.append(0.)
         dev_accuracies.append(0.)
+        train_totals.append(0.)
 
 
     with model.begin_training(batch_size=nB, nb_epoch=nE) as (trainer, optimizer):
         trainer.dropout = dropout
         trainer.dropout_decay = 1e-4
         trainer.each_epoch.append(track_progress)
+        optimizer.alpha = 0.001
+        optimizer.L2 = 1e-6
+        optimizer.max_grad_norm = 1.0
         for X, Y in trainer.iterate(train_X, train_Y):
-            (Yh, Y_mask), backprop = model.begin_update((X, Y), drop=dropout)
-            dYh = get_loss(model.ops, Yh, Y, Y_mask)
+            (Yh, X_mask), backprop = model.begin_update((X, Y), drop=dropout)
+            dYh, C = get_loss(model.ops, Yh, Y, X_mask)
             backprop(dYh, sgd=optimizer)
             losses[-1] += (dYh**2).sum()
-            #train_accuracies[-1] += accuracy
+            train_accuracies[-1] += C
+            train_totals[-1] += sum(len(y) for y in Y)
 
 
 if __name__ == '__main__':
