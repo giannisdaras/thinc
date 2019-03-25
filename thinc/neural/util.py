@@ -104,13 +104,6 @@ def mark_sentence_boundaries(sequences, drop=0.0):  # pragma: no cover
     return sequences, None
 
 
-def add_eos_bos(sentences):
-    '''Add eos and bos tokens to a batch of sentences'''
-    for sentence in sentences:
-        sentence.insert(0, '<bos>')
-        sentence.append('<eos>')
-    return sentences
-
 def remap_ids(ops):
     id_map = {0: 0}
 
@@ -169,36 +162,3 @@ def partition(examples, split_size):  # pragma: no cover
     split = int(n_docs * split_size)
     return examples[:split], examples[split:]
 
-
-def numericalize_vocab(nlp):
-    ''' Numericalize vocabulary in a continuous range '''
-    indx2word = defaultdict(lambda: 'oov')
-    # <pad> --> 0
-    # last  --> nlp.vocab
-    # <eos> --> nlp.vocab + 1
-    # <bos> --> nlp.vocab + 2
-    # oov --> nlp.vocab + 3
-    keys = set()
-    for word in nlp.vocab:
-        keys.add(word)
-    vocab = len(keys)
-    word2indx = defaultdict(lambda: vocab + 3)
-    for indx, word in enumerate(nlp.vocab):
-        word2indx[word.text] = indx + 1
-        indx2word[indx + 1] = word.text
-
-    word2indx['<eos>'] = vocab + 1
-    indx2word[vocab + 1] = '<eos>'
-
-    word2indx['<bos>'] = vocab + 2
-    indx2word[vocab + 2] = '<bos>'
-
-    word2indx['<pad>'] = 0
-    indx2word[0] = '<pad>'
-
-    return word2indx, indx2word
-
-
-def numericalize(word2indx, X):
-    ''' Get numerical input out of list of tokens '''
-    return [word2indx[x] for x in X]

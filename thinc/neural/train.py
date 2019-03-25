@@ -47,48 +47,6 @@ class Trainer(object):
             for func in self.each_epoch:
                 func()
 
-    def batch_mask(self, train_X, train_y, progress_bar=True, pad_token=0):
-        for i in range(self.nb_epoch):
-            indices = self.ops.xp.arange(len(train_X))
-            self.ops.xp.random.shuffle(indices)
-            indices = self.ops.asarray(indices)
-            j = 0
-            with tqdm(total=indices.shape[0], leave=False) as pbar:
-                slice_ = indices[j : j + self.batch_size]
-                X = _take_slice(train_X, slice_)
-                y = _take_slice(train_y, slice_)
-                j += self.batch_size
-                max_sent = 0
-                for i, j in zip(X, y):
-                    curr_len = max(len(i), len(j))
-                    if (curr_len > max_sent):
-                        max_sent = curr_len
-                nX = self.ops.xp.empty(self.batch_size)
-                nY = self.ops.xp.empty(self.batch_size)
-                X_mask = self.ops.xp.ones([self.batch_size, max_sent], dtype=self.ops.xp.int)
-                y_mask = self.ops.xp.ones([self.batch_size, max_sent], dtype=self.ops.xp.int)
-                sent = 0
-                for x_curr, y_curr in zip(X, y):
-                    x_pad = max_sent - len(x_curr)
-                    y_pad = max_sent - len(y_curr)
-                    ''' this if is a bit ugly, but slicing gets really
-                    weird if you end up with a zero here '''
-                    if x_pad > 0:
-                        X_mask[sent][-x_pad:] = 0
-                    if y_pad > 0:
-                        y_mask[sent][-y_pad:] = 0
-                    nX[sent] = len(x_curr)
-                    nY[sent] = len(y_curr)
-                    x_curr.extend(['<pad>' for i in range(x_pad)])
-                    y_curr.extend(['<pad>' for i in range(y_pad)])
-                    sent += 1
-                yield (X, y), (X_mask, y_mask), (nX, nY)
-                if progress_bar:
-                    pbar.update(self.batch_size)
-            for func in self.each_epoch:
-                func()
-
-
 
 def _take_slice(data, slice_):
     if isinstance(data, list) or isinstance(data, tuple):

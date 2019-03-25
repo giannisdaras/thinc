@@ -1,138 +1,150 @@
 ''' A driver file for attention is all you need paper demonstration '''
+from __future__ import unicode_literals
 import plac
+from collections import Counter
 import spacy
+from spacy.tokens import Doc
+from spacy.attrs import ID, ORTH
 from thinc.extra.datasets import get_iwslt
 from thinc.loss import categorical_crossentropy
-from spacy.lang.en import English
-from spacy.lang.de import German
 from thinc.neural.util import get_array_module
 from spacy._ml import link_vectors_to_models
-from thinc.neural.util import add_eos_bos, numericalize, numericalize_vocab, \
-to_categorical
+from thinc.neural.util import to_categorical, minibatch
 from thinc.neural._classes.encoder_decoder import EncoderDecoder
 from thinc.neural._classes.embed import Embed
+from thinc.api import wrap, chain, with_flatten, layerize
+from thinc.misc import Residual
 from thinc.v2v import Model
 from timeit import default_timer as timer
 
+from spacy.lang.en import English
+from spacy.lang.de import German
+import pickle
+import sys
 MODEL_SIZE = 300
 MAX_LENGTH = 50
+VOCAB_SIZE = 20
 
-
-def from_dataset(dev_X, dev_y, batch_size):
-    ''' Get slice from input '''
-    nX = Model.ops.xp.empty(batch_size)
-    nY = Model.ops.xp.empty(batch_size)
-    X_mask = Model.ops.xp.ones([batch_size, MAX_LENGTH],
-                               dtype=Model.ops.xp.int)
-    y_mask = Model.ops.xp.ones([batch_size, MAX_LENGTH],
-                               dtype=Model.ops.xp.int)
-    sent = 0
-    for x_curr, y_curr in zip(dev_X, dev_y):
-        x_pad = MAX_LENGTH - len(x_curr)
-        y_pad = MAX_LENGTH - len(y_curr)
-        if x_pad > 0:
-            X_mask[sent][-x_pad:] = 0
-        if y_pad > 0:
-            y_mask[sent][-y_pad:] = 0
-        nX[sent] = len(x_curr)
-        nY[sent] = len(y_curr)
-        x_curr.extend(['<pad>' for i in range(x_pad)])
-        y_curr.extend(['<pad>' for i in range(y_pad)])
-        sent += 1
-    return (dev_X, dev_y), (X_mask, y_mask), (nX, nY)
-
-
-def get_model_inputs(*args, dataset=False):
-    ''' a function to prepare model inputs either directly from dataset
-    or from a trainer slice '''
-    if not dataset:
-        nB, pairs, pad_masks, lengths, en_word2indx, de_word2indx, en_embeddings, \
-        de_embeddings, X_positions = args
-    else:
-        nB, dev_X, dev_y, en_word2indx, de_word2indx, en_embeddings, \
-        de_embeddings, X_positions = args
-        pairs, pad_masks, lengths = from_dataset(dev_X, dev_y, nB)
-
-    X_text, y_text = pairs
-    X_mask, y_mask = pad_masks
-    nL = X_mask.shape[1]
-    nX, nY = lengths
-
-
-    ''' numericalize text '''
-    X_num = Model.ops.xp.empty([1, nB, nL], dtype=Model.ops.xp.int)
-    y_num = Model.ops.xp.empty([1, nB, nL], dtype=Model.ops.xp.int)
-    for i, _x in enumerate(X_text):
-        X_num[0][i][:] = numericalize(en_word2indx, _x)
-    for i, _y in enumerate(y_text):
-        y_num[0][i][:] = numericalize(de_word2indx, _y)
-
-    ''' get text embeddings '''
-    X_emb0, backprop_X_emb0 = en_embeddings.begin_update(X_num)
-    y_emb0, backprop_y_emb0 = de_embeddings.begin_update(y_num)
-
-    ''' Text embeddings must be reshaped '''
-    X_emb1 = X_emb0.reshape(nB, nL, MODEL_SIZE)
-    y_emb1 = y_emb0.reshape(nB, nL, MODEL_SIZE)
-
-    ''' add position encodings '''
-    X = X_emb1 + X_positions[:nL]
-    y = y_emb1 + X_positions[:nL]
-    X = X.astype(Model.ops.xp.float32)
-    y = y.astype(Model.ops.xp.float32)
-
-    b0 = Batch((X, y), (X_mask, y_mask), (nX, nY))
-    if not dataset:
-        return b0, X, y, backprop_X_emb0, backprop_y_emb0, y_num
-    else:
-        return b0, y_num
+random.seed(0)
+numpy.random.seed(0)
 
 
 class Batch:
     ''' Objects of this class share pairs X,Y along with their
         padding/future-words-hiding masks '''
-    def __init__(self, pair, pad_masks, lengths):
+    def __init__(self, pair, lengths):
         # X, y: nB x nL x nM
         # X_pad_mask, y_pad_mask: nB x nL
         # X_mask, y_mask: nB x nL x nL
         X, y = pair
-        self.X_pad_mask, self.y_pad_mask = pad_masks
         nX, nY = lengths
-        ''' TODO: this is super clumpsy and we need to fix this, but at least
-        is happening only once ber batch, so it's acceptable for now '''
+        self.X = X
         self.y = y
         self.nB = X.shape[0]
         self.nL = X.shape[1]
-        self.X = X
-        self.X_mask = Model.ops.xp.repeat(self.X_pad_mask[:, :, Model.ops.xp.newaxis], self.nL, axis=2)
-        ''' Explanation:
-        y_mask has different dimensions than x_pad mask, because the mask
-        itself is responsible for the different "steps" in the decoder
-        architecture. That actually means, that y_mask should not only mask the
-        pad tokens, but take care of avoiding attention to future positions.
-        y_mask has shape: nB x nL x nL, to hold the different masks for the
-        different tokens. To get to that 3d array from y_pad_mask and
-        subsequent mask (which are 2d arrays), we insert a fake dimension
-        for successfull broadcasting.
-        '''
-        # (nB, 1, nL) & (1, nL, nL) --> (nB, nL, nL)
-        self.y_mask = Model.ops.xp.expand_dims(self.y_pad_mask, -2) & \
-            self.subsequent_mask(self.nL)
+        self.X_mask = Model.ops.allocate((self.nB, self.nL, self.nL), dtype='bool')
+        self.y_mask = Model.ops.allocate((self.nB, self.nL, self.nL), dtype='bool')
+        for i, length in enumerate(nX):
+            self.X_mask[i, :length, :length] = 1
+        for i, length in enumerate(nY):
+            for j in range(length):
+                self.y_mask[i, j, :j+1] = 1
 
-    def subsequent_mask(self, nL):
-        return (Model.ops.xp.triu(Model.ops.xp.ones([1, nL, nL]), k=1) == 0)
 
 
 def spacy_tokenize(X_tokenizer, Y_tokenizer, X, Y, max_length=50):
     X_out = []
     Y_out = []
     for x, y in zip(X, Y):
-        xdoc = X_tokenizer(x)
-        ydoc = Y_tokenizer(y)
+        xdoc = X_tokenizer('<bos> ' + x.strip() + ' <eos>')
+        ydoc = Y_tokenizer('<bos> ' + y.strip() + ' <eos>')
         if len(xdoc) < MAX_LENGTH and (len(ydoc) + 2) < MAX_LENGTH:
-            X_out.append([w.text for w in xdoc])
-            Y_out.append([w.text for w in ydoc])
+            X_out.append(xdoc)
+            Y_out.append(ydoc)
     return X_out, Y_out
+
+
+
+def PositionEncode(max_length, model_size):
+    positions = Model.ops.position_encode(max_length, model_size)
+    def position_encode_forward(Xs, drop=0.):
+        output = []
+        for x in Xs:
+            output.append(positions[:x.shape[0]])
+        return output, None
+    return layerize(position_encode_forward)
+
+
+@layerize
+def docs2ids(docs, drop=0.):
+    """Extract ids from a batch of (docx, docy) tuples."""
+    ops = Model.ops
+    ids = []
+    for doc in docs:
+        if "ids" not in doc.user_data:
+            doc.user_data["ids"] = ops.asarray(doc.to_array(ID), dtype='int32')
+        ids.append(doc.user_data["ids"])
+        if not (ids[-1] != 0).all():
+            raise ValueError(ids[-1])
+    return ids, None
+
+
+def apply_layers(*layers):
+    """Take a sequence of input layers, and expect input tuples. Apply
+    layers[0] to inputs[1], layers[1] to inputs[1], etc.
+    """
+    def apply_layers_forward(inputs, drop=0.):
+        assert len(inputs) == len(layers), (len(inputs), len(layers))
+        outputs = []
+        callbacks = []
+        for layer, input_ in zip(layers, inputs):
+            output, callback = layer.begin_update(input_, drop=drop)
+            outputs.append(output)
+            callbacks.append(callback)
+
+        def apply_layers_backward(d_outputs, sgd=None):
+            d_inputs = []
+            for callback, d_output in zip(callbacks, d_outputs):
+                if callback is None:
+                    d_inputs.append(None)
+                else:
+                    d_inputs.append(callback(d_output, sgd=sgd))
+            return d_inputs
+        return tuple(outputs), apply_layers_backward
+    return wrap(apply_layers_forward, *layers)
+
+
+def set_numeric_ids(vocab, docs, vocab_size=0, force_include=("<oov>", "<eos>", "<bos>")):
+    """Count word frequencies and use them to set the lex.rank attribute."""
+    freqs = Counter()
+    for doc in docs:
+        assert doc.vocab is vocab
+        for token in doc:
+            lex = vocab[token.orth]
+            freqs[lex.orth] += 1
+    rank = 1
+    for word in force_include:
+        lex = vocab[word]
+        lex.rank = rank
+        rank += 1
+    oov_rank = vocab["<oov>"].rank
+    for lex in vocab:
+        if lex.text not in force_include:
+            lex.rank = oov_rank
+    for orth, count in freqs.most_common():
+        lex = vocab[orth]
+        if lex.text not in force_include:
+            lex.rank = rank
+            rank += 1
+        if vocab_size != 0 and rank >= vocab_size:
+            break
+    vocab.lex_attr_getters[ID] = lambda word: oov_rank
+    output_docs = []
+    for doc in docs:
+        output_docs.append(Doc(vocab, words=[w.text for w in doc]))
+        for token in output_docs[-1]:
+            assert token.rank != 0, (token.text, token.vocab[token.text].rank)
+    return output_docs
 
 
 def resize_vectors(vectors):
@@ -146,16 +158,59 @@ def resize_vectors(vectors):
         vectors.resize(shape)
 
 
+def create_batch():
+    def create_batch_forward(Xs_Ys, drop=0.):
+        Xs, Ys = Xs_Ys
+        nX = model.ops.asarray([x.shape[0] for x in Xs], dtype='i')
+        nY = model.ops.asarray([y.shape[0] for y in Ys], dtype='i')
+
+        nL = max(nX.max(), nY.max())
+        Xs, _, unpad_dXs = model.ops.square_sequences(Xs, pad_to=nL)
+        Ys, _, unpad_dYs = model.ops.square_sequences(Ys, pad_to=nL)
+        Xs = Xs.transpose((1, 0, 2))
+        Ys = Ys.transpose((1, 0, 2))
+
+        def create_batch_backward(dXs_dYs, sgd=None):
+            dXs, dYs = dXs_dYs
+            dXs = unpad_dXs(dXs.transpose((1, 0, 2)))
+            dYs = unpad_dYs(dYs.transpose((1, 0, 2)))
+            return dXs, dYs
+
+        batch = Batch((Xs, Ys), (nX, nY))
+        return ((batch.X, batch.X_mask), (batch.y, batch.y_mask)), create_batch_backward
+    model = layerize(create_batch_forward)
+    return model
+
+
+def get_loss(ops, Yh, Y_docs, Xmask):
+    Y_ids = docs2ids(Y_docs)
+    guesses = Yh.argmax(axis=-1)
+    nC = Yh.shape[-1]
+    Y = [to_categorical(y, nb_classes=nC) for y in Y_ids]
+    nL = max(Yh.shape[1], max(y.shape[0] for y in Y))
+    Y, _, _ = ops.square_sequences(Y, pad_to=nL)
+    Y = Y.transpose((1, 0, 2))
+    # TODO: Right-shift. At timestep 0 we *see* <bos> and predict word 0
+    # At gold[0] is <bos>, so our predictions are right-shifted.
+    #Yh[1:] = Yh[:-1]
+    is_accurate = (Yh.argmax(axis=-1) == Y.argmax(axis=-1))
+    d_loss = Yh-Y 
+    for i, doc in enumerate(Y_docs):
+        is_accurate[i, len(doc):] = 0
+        d_loss[i, len(doc):] = 0
+    return d_loss, is_accurate.sum()
+
+
 @plac.annotations(
     nH=("number of heads of the multiheaded attention", "option", "nH", int),
-    dropout=("model dropout", "option"),
+    dropout=("model dropout", "option", "d", float),
     nS=('Number of encoders/decoder in the enc/dec stack.', "option", "nS", int),
     nB=('Batch size for the training', "option", "nB", int),
     nE=('Number of epochs for the training', "option", "nE", int),
     use_gpu=("Which GPU to use. -1 for CPU", "option", "g", int),
     lim=("Number of sentences to load from dataset", "option", "l", int)
 )
-def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
+def main(nH=2, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
     if use_gpu != -1:
         # TODO: Make specific to different devices, e.g. 1 vs 0
         spacy.require_gpu()
@@ -163,79 +218,68 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
     train_X, train_Y = zip(*train)
     dev_X, dev_Y = zip(*dev)
     test_X, test_Y = zip(*test)
-    X_positions = Model.ops.position_encode(MAX_LENGTH, MODEL_SIZE)
-    print('Position encodings computed successfully')
     ''' Read dataset '''
     nlp_en = spacy.load('en_core_web_sm')
     nlp_de = spacy.load('de_core_news_sm')
     print('Models loaded')
-    # eos_vector = Model.ops.xp.random.rand(MODEL_SIZE)
-    # bos_vector = Model.ops.xp.random.rand(MODEL_SIZE)
-    # resize_vectors(nlp_de.vocab.vectors)
-    # nlp_de.vocab.set_vector('<eos>', eos_vector)
-    # nlp_de.vocab.set_vector('<bos>', bos_vector)
-    en_tokenizer = English().Defaults.create_tokenizer(nlp_en)
-    de_tokenizer = German().Defaults.create_tokenizer(nlp_de)
-    train_X, train_Y = spacy_tokenize(en_tokenizer, de_tokenizer,
-                                      train_X[:lim],
-                                      train_Y[:lim], MAX_LENGTH)
-    dev_X, dev_Y = spacy_tokenize(en_tokenizer,
-                                  de_tokenizer,
-                                  dev_X[:lim], dev_Y[:lim], MAX_LENGTH)
-    test_X, test_Y = spacy_tokenize(en_tokenizer, de_tokenizer,
-                                    test_X[:lim], test_Y[:lim], MAX_LENGTH)
-    train_Y = add_eos_bos(train_Y)
-    # link_vectors_to_models(nlp_en.vocab)
-    # link_vectors_to_models(nlp_de.vocab)
-    # en_embeddings = StaticVectors(nlp_en.vocab.vectors.name, MODEL_SIZE, column=0)
-    # de_embeddings = StaticVectors(nlp_de.vocab.vectors.name, MODEL_SIZE, column=0)
-    en_word2indx, en_indx2word = numericalize_vocab(nlp_en)
-    de_word2indx, de_indx2word = numericalize_vocab(nlp_de)
-    ''' 1 for oov, 1 for pad '''
-    nTGT = len(de_word2indx) + 2
-    en_embeddings = Embed(MODEL_SIZE, nM=MODEL_SIZE, nV=nTGT)
-    de_embeddings = Embed(MODEL_SIZE, nM=MODEL_SIZE, nV=nTGT)
-    model = EncoderDecoder(nH=nH, nS=nS, nTGT=nTGT)
+    for control_token in ("<eos>", "<bos>", "<pad>"):
+        nlp_en.tokenizer.add_special_case(control_token, [{ORTH: control_token}])
+        nlp_de.tokenizer.add_special_case(control_token, [{ORTH: control_token}])
+    train_X, train_Y = spacy_tokenize(nlp_en.tokenizer, nlp_de.tokenizer,
+                                      train_X[-lim:], train_Y[-lim:], MAX_LENGTH)
+    dev_X, dev_Y = spacy_tokenize(nlp_en.tokenizer, nlp_de.tokenizer,
+                                  dev_X[-lim:], dev_Y[-lim:], MAX_LENGTH)
+    test_X, test_Y = spacy_tokenize(nlp_en.tokenizer, nlp_de.tokenizer,
+                                    test_X[-lim:], test_Y[-lim:], MAX_LENGTH)
+    train_X = set_numeric_ids(nlp_en.vocab, train_X, vocab_size=VOCAB_SIZE)
+    train_Y = set_numeric_ids(nlp_de.vocab, train_Y, vocab_size=VOCAB_SIZE)
+    nTGT = VOCAB_SIZE+1
 
+    with Model.define_operators({">>": chain}):
+        position_encode = PositionEncode(MAX_LENGTH, MODEL_SIZE)
+        model = (
+            apply_layers(docs2ids, docs2ids)
+            >> apply_layers(
+                with_flatten(Embed(MODEL_SIZE, nM=MODEL_SIZE, nV=nTGT)),
+                with_flatten(Embed(MODEL_SIZE, nM=MODEL_SIZE, nV=nTGT)))
+            #>> apply_layers(Residual(position_encode), Residual(position_encode))
+            >> create_batch()
+            >> EncoderDecoder(nS=nS, nH=nH, nTGT=nTGT)
+        )
 
-
+    losses = [0.]
+    train_accuracies = [0.]
+    dev_accuracies = [0.]
+    dev_loss = [0.]
     def track_progress():
-        b_dev, y = get_model_inputs(100, dev_X[:100], dev_Y[:100], en_word2indx,
-                                        de_word2indx, en_embeddings,
-                                        de_embeddings, X_positions, dataset=True)
-        scores = model(b_dev)
-        categorical_y = to_categorical(y, nb_classes=scores.shape[2])
-        scores = scores.reshape(categorical_y.shape)
-        if len(scores.shape) == 1:
-            correct = ((scores >= 0.5) == (categorical_y >= 0.5)).sum()
-        else:
-            correct = (scores.argmax(axis=1) == categorical_y.argmax(axis=1)).sum()
-        print(correct / categorical_y.shape[0])
+        correct = 0.
+        total = 0.
+        for batch in minibatch(zip(dev_X, dev_Y), size=1024):
+            X, Y = zip(*batch)
+            Yh, Y_mask = model((X, Y))
+            L = get_loss(model.ops, Yh, Y, Y_mask)
+            #correct += C
+            dev_loss[-1] += (L**2).sum()
+            total += len(Y)
+        #dev_accuracies[-1] = correct / total
+        #print(len(losses), losses[-1], train_accuracies[-1], dev_loss[-1], dev_accuracies[-1])
+        print(len(losses), losses[-1], dev_loss[-1])
+        dev_loss.append(0.)
+        losses.append(0.)
+        train_accuracies.append(0.)
+        dev_accuracies.append(0.)
 
 
-    with model.begin_training(train_X, train_Y, batch_size=nB, nb_epoch=nE) \
-            as (trainer, optimizer):
+    with model.begin_training(batch_size=nB, nb_epoch=nE) as (trainer, optimizer):
         trainer.dropout = dropout
         trainer.dropout_decay = 1e-4
         trainer.each_epoch.append(track_progress)
-        for pairs, pad_masks, lengths in trainer.batch_mask(train_X, train_Y):
-            nL = pad_masks[0].shape[1]
-            b0, X, y, backprop_X_emb0, backprop_y_emb0, y_num = \
-                get_model_inputs(nB, pairs, pad_masks, lengths, en_word2indx,
-                                 de_word2indx, en_embeddings,
-                                 de_embeddings, X_positions)
-            yh, backprop = model.begin_update(b0, drop=trainer.dropout)
-            yh2d = yh.reshape(-1, nTGT)
-            y_num2d = y_num.reshape(-1)
-            grad2d, loss = categorical_crossentropy(yh2d, y_num2d)
-            grad = grad2d.reshape(nB, nL, nTGT)
-            dX, dY = backprop(grad, sgd=optimizer)
-            ''' the sum does not affect the grad '''
-            dX_emb1, dy_emb1 = dX, dY
-            dX_emb0 = dX_emb1.reshape(-1, MODEL_SIZE)
-            dy_emb0 = dy_emb1.reshape(-1, MODEL_SIZE)
-            backprop_X_emb0(dX_emb0, optimizer)
-            backprop_y_emb0(dy_emb0, optimizer)
+        for X, Y in trainer.iterate(train_X, train_Y):
+            (Yh, Y_mask), backprop = model.begin_update((X, Y), drop=dropout)
+            dYh = get_loss(model.ops, Yh, Y, Y_mask)
+            backprop(dYh, sgd=optimizer)
+            losses[-1] += (dYh**2).sum()
+            #train_accuracies[-1] += accuracy
 
 
 if __name__ == '__main__':

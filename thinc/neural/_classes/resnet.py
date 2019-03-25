@@ -10,6 +10,10 @@ class Residual(Model):
         self._layers.append(layer)
         self.on_data_hooks.append(on_data)
 
+    @property
+    def nO(self):
+        return self._layers[0].nO
+
     def __call__(self, X):
         Y = self._layers[0](X)
         if isinstance(X, list) or isinstance(X, tuple):

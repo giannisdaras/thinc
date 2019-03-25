@@ -1,60 +1,29 @@
 import math
 import pdb
 from .model import Model
-from ...api import chain, clone
+from ...api import chain, clone, with_getitem, wrap
 from .softmax import Softmax
 from .layernorm import LayerNorm
 from .resnet import Residual
 from .affine import Affine
 
 
-class SeqLinear(Model):
-    def __init__(self, nI=300, nO=300):
-        Model.__init__(self)
-        self.nI = nI
-        self.nO = nO
-        self.linear = Affine(nI=nI, nO=nO)
-
-    def begin_update(self, X, drop=0.0, dim=3):
+def with_reshape(layer):
+    def with_reshape_forward(X, drop=0.):
         initial_shape = X.shape
-        final_shape = list(initial_shape[:-1]) + [self.nO]
+        final_shape = list(initial_shape[:-1]) + [layer.nO]
         nB = X.shape[0]
         nT = X.shape[1]
         X2d = X.reshape(-1, X.shape[2])
-        X2d = X2d.astype(Model.ops.xp.float32)
-        Y2d, Y2d_backprop = self.linear.begin_update(X2d)
+        X2d = X2d.astype(layer.ops.xp.float32)
+        Y2d, Y2d_backprop = layer.begin_update(X2d, drop=drop)
         Y = Y2d.reshape(final_shape)
 
-        def finish_update(grad__BO, sgd=None):
-            grad__BO = grad__BO.reshape(nB*nT, -1).astype(Model.ops.xp.float32)
-            return Y2d_backprop(grad__BO, sgd=sgd).reshape(initial_shape)
-        return Y, finish_update
-
-
-class SeqSoftmax(Model):
-    def __init__(self, nI=300, nO=300):
-        Model.__init__(self)
-        self.nI = nI
-        self.nO = nO
-        self.softmax = Softmax(nI=nI, nO=nO)
-
-    def begin_update(self, X, dim=3):
-        # X: nB, nL, nI
-        nB, nL, nI, nO = X.shape[0], X.shape[1], X.shape[2], self.nO
-        # X2d: nB*nL, nI
-        X2d = X.reshape(nB*nL, nI)
-        # Y2d: nB*nL, nO
-        X2d = X2d.astype(Model.ops.xp.float32)
-        Y2d, Y2d_backprop = self.softmax.begin_update(X2d)
-        # Y: nB, nL, nO
-        Y = Y2d.reshape(nB, nL, nO)
-
-        def finish_update(dY, sgd=None):
-            dY2d = dY.reshape(nB*nL, nO)
-            dX2d = Y2d_backprop(dY2d, sgd=sgd)
-            dX = dX2d.reshape(nB, nL, nI)
-            return dX
-        return Y, finish_update
+        def with_reshape_backward(dY, sgd=None):
+            dY = dY.reshape(nB*nT, -1).astype(layer.ops.xp.float32)
+            return Y2d_backprop(dY, sgd=sgd).reshape(initial_shape)
+        return Y, with_reshape_backward
+    return wrap(with_reshape_forward, layer)
 
 
 class EncoderDecoder(Model):
@@ -73,96 +42,41 @@ class EncoderDecoder(Model):
         self.nH = nH
         self.nM = nM
         self.nTGT = nTGT
-        self.enc = Encoder(self.nH, self.nM, self.nS)
-        self.dec = Decoder(self.nH, self.nM, self.nS)
-        self.proj = SeqSoftmax(nM, nTGT)
+        self.enc = clone(EncoderLayer(self.nH, self.nM), self.nS)
+        self.dec = clone(DecoderLayer(self.nH, self.nM), self.nS)
+        self.proj = with_reshape(Softmax(nO=nTGT, nI=nM))
+        self._layers = [self.enc, self.dec, self.proj]
 
-    def begin_update(self, b0, drop=0.0):
+    def begin_update(self, inputs, drop=0.0):
         '''
         A batch object flows through the network. It contains input, output and
         corresponding masks. Input changes while the object travels through
         the network. Output is the golden output.
         Input: nB x nL x nM
         '''
+        (X0, Xmask), (Y0, Ymask) = inputs
         # b0: x0, y0
         # b1: x1, y1
         # b2: x2, y2
-        b1, get_dx0 = self.enc.begin_update(b0)
-        b2, get_dx1_dy1 = self.dec.begin_update(b1)
-        y2 = b2.y
-        y3, get_dy2 = self.proj.begin_update(y2)
+        (X1, _), get_dX0 = self.enc.begin_update((X0, Xmask), drop=drop)
+        (_, (Y1, _)), get_dX1_dY0 = self.dec.begin_update(((X1, Xmask), (Y0, Ymask)), drop=drop)
+        word_probs, get_dY1 = self.proj.begin_update(Y1, drop=drop)
 
-        def finish_update(dy3, sgd=None):
-            dy2 = get_dy2(dy3, sgd=sgd)
-            _ = Model.ops.xp.zeros(dy2.shape, dtype=Model.ops.xp.float32)
-            dx1, dy1 = get_dx1_dy1((_, dy2), sgd=sgd)
-            dx0 = get_dx0(dx1, sgd=sgd)
-            return (dx0, dy1)
+        def finish_update(d_word_probs, sgd=None):
+            dY1 = get_dY1(d_word_probs, sgd=sgd)
+            zeros = Model.ops.xp.zeros(X1.shape, dtype=Model.ops.xp.float32)
+            dX1, dY0 = get_dX1_dY0((zeros, dY1), sgd=sgd)
+            dX0 = get_dX0(dX1, sgd=sgd)
+            return (dX0, dY0)
 
-        return y3, finish_update
-
-
-class Encoder(Model):
-    def __init__(self, nH, nM, nS):
-        Model.__init__(self)
-        self.nH = nH
-        self.nM = nM
-        self.nS = nS
-        self.enc_stack = EncoderLayer(nH, nM)
-        for i in range(nS - 1):
-            self.enc_stack = chain(self.enc_stack, EncoderLayer(nH, nM))
-
-    def begin_update(self, b0, drop=0.0):
-        b1, get_dx = self.enc_stack.begin_update(b0)
-
-        def finish_update(grad__BO, sgd=None):
-            return get_dx(grad__BO, sgd=sgd)
-        return b1, finish_update
+        return (word_probs, Ymask), finish_update
 
 
-class Decoder(Model):
-    def __init__(self, nH, nM, nS):
-        # nS: stack size
-        Model.__init__(self)
-        self.nH = nH
-        self.nM = nM
-        self.nS = nS
-        self.dec_stack = DecoderLayer(nH, nM)
-        for i in range(self.nS - 1):
-            self.dec_stack = chain(self.dec_stack, DecoderLayer(nH, nM))
-
-    def begin_update(self, b0, drop=0.0):
-        b1, get_dx_dy = self.dec_stack.begin_update(b0)
-
-        def finish_update(grad__BO, sgd=None):
-            dX, dY = grad__BO
-            return get_dx_dy((dX, dY,), sgd=sgd)
-
-        return b1, finish_update
-
-
-class EncoderLayer(Model):
-    def __init__(self, nH, nM):
-        Model.__init__(self)
-        self.nH = nH
-        self.nM = nM
-        ''' TODO: this layer should be probably made residual '''
-        self.x_attn = MultiHeadedAttention(nM, nH)
-        self.ffd = Residual(SeqLinear(nM, nM))
-
-    def begin_update(self, batch, drop=0.0):
-        x0 = batch.X
-        X_mask = batch.X_mask
-        x1, get_dx00_dx01 = self.x_attn.begin_update((x0, x0, X_mask))
-        x2, get_dx1 = self.ffd.begin_update(x1)
-        batch.X = x2
-
-        def finish_update(dx2, sgd=None):
-            dx1 = get_dx1(dx2, sgd=sgd)
-            dx00, dx01 = get_dx00_dx01(dx1, sgd=sgd)
-            dx = dx00 + dx01
-            return dx
-        return batch, finish_update
+def EncoderLayer(nH, nM):
+    return chain(
+        MultiHeadedAttention(nM, nH),
+        with_getitem(0, with_reshape(Affine(nM, nM)))
+    )
 
 
 class DecoderLayer(Model):
@@ -173,38 +87,29 @@ class DecoderLayer(Model):
         ''' TODO: the following two layers should be probably residuals '''
         self.x_attn = MultiHeadedAttention(nM, nH)
         self.y_attn = MultiHeadedAttention(nM, nH)
-        self.ffd = SeqLinear(nM, nM)
-        self.residuals = [self.x_attn, self.y_attn, Residual(self.ffd)]
+        self.ffd = with_reshape(Affine(nM, nM))
+        self._layers = [self.x_attn, self.y_attn, self.ffd]
 
-    def begin_update(self, batch, drop=0.0):
-        x0 = batch.X
-        y0 = batch.y
-        X_mask = batch.X_mask
-        y_mask = batch.y_mask
-        y1, get_dy00_dy01 = self.residuals[0].begin_update((y0, y0, y_mask))
-        y2, get_dy1_dx0 = self.residuals[1].begin_update((y1, x0, X_mask))
-        y3, get_dy2 = self.ffd.begin_update(y2)
-        batch.y = y3
+    def begin_update(self, X_Y, drop=0.0):
+        (X0, Xmask), (Y0, Ymask) = X_Y
+        (Y1, _), get_dY00_dY01 = self.y_attn.begin_update((Y0, Y0, Ymask))
+        # Arg0 to the multi-head attention is the queries,
+        # which is the outputs (Y) for the decoder.
+        # I'm not sure, but I think this needs Ymask? We don't want to attend
+        # over the future elements in the decoder.
+        (Y2, _), get_dY1_dX0 = self.x_attn.begin_update((Y1, X0, Ymask))
+        Y3, get_dY2 = self.ffd.begin_update(Y2)
 
-        def finish_update(grad__BO, sgd=None):
-            ''' TODO: we have to discuss if this is actually correct
-            The loss function regards only the EncoderDecoder output, and not
-            the EncoderDecoder input. But actually, we need to calculate
-            how much the transformed input affects the output, so we can
-            backpropagate the Encoder layer later.
-            The proposed method is to start with a zero grad and increase it
-            while we are inside the decoder stack.
-            It seems mathematical correct, but needs test.
-            '''
-            dy3, dx = grad__BO
-            dy2 = get_dy2(dy3, sgd=sgd)
-            dy1, dx0 = get_dy1_dx0(dy2, sgd=sgd)
-            dy00, dy01 = get_dy00_dy01(dy1, sgd=sgd)
-            dy0 = dy00 + dy01
-            dx += dx0
-            return (dx, dy0,)
+        def finish_update(dY3_dX0, sgd=None):
+            dY3, dX = dY3_dX0
+            dY2 = get_dY2(dY3, sgd=sgd)
+            dY1, dX0 = get_dY1_dX0(dY2, sgd=sgd)
+            dY00, dY01 = get_dY00_dY01(dY1, sgd=sgd)
+            dY0 = dY00 + dY01
+            dX += dX0
+            return (dX, dY0,)
 
-        return batch, finish_update
+        return ((X0, Xmask), (Y3, Ymask)), finish_update
 
 
 class MultiHeadedAttention(Model):
@@ -222,10 +127,18 @@ class MultiHeadedAttention(Model):
         self.nH = nH
         self.nM = nM  # model size: the length of the embeddings
         self.nD = nM // nH
-        self.linears = [SeqLinear(nM, nM) for i in range(4)]
+        self.linears = [with_reshape(Affine(nM, nM)) for i in range(4)]
+        self._layers = list(self.linears)
 
     def begin_update(self, input, drop=0.0):
-        x0, y0, mask = input
+        # Queries come from inpit[0], keys and values from input[1]
+        if len(input) == 2:
+            x0, mask = input
+            y0 = x0
+            self_attention = True
+        else:
+            self_attention = False
+            x0, y0, mask = input
         ''' Shapes '''
         # x0: nB, nL, nM
         # q0: nB, nL, nM
@@ -260,9 +173,11 @@ class MultiHeadedAttention(Model):
             dy0 = get_dy0_2(dv0, sgd=sgd)
             dy0 += get_dy0_1(dk0, sgd=sgd)
             dx0 = get_dx0(dq0, sgd=sgd)
-            return (dx0, dy0)
-
-        return x3, finish_update
+            if self_attention:
+                return dx0 + dy0
+            else:
+                return (dx0, dy0)
+        return (x3, mask), finish_update
 
     def attn(self, Q, K, V, mask=None):
         ''' Compute attention on (query, key, value) triplet '''

@@ -113,11 +113,10 @@ class Model(object):
         for layer in self._layers:
             layer.set_id()
 
-    # @check.args(equal_length)
-    @check.arg(1, is_sequence)
-    def begin_training(self, train_X, train_y=None, **trainer_cfg):
-        for hook in self.on_data_hooks:
-            hook(self, train_X, train_y)
+    def begin_training(self, train_X=None, train_y=None, **trainer_cfg):
+        if train_X is not None:
+            for hook in self.on_data_hooks:
+                hook(self, train_X, train_y)
         return self.Trainer(self, **trainer_cfg)
 
     @check.arg(2, is_float)

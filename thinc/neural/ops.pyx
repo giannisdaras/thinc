@@ -142,7 +142,7 @@ class Ops(object):
         assert len(unflat) == len(lengths)
         return unflat
 
-    def square_sequences(self, seqs):
+    def square_sequences(self, seqs, pad_to=None):
         '''Sort a batch of sequence by decreasing length, pad, and transpose
         so that the outer dimension is the timestep. Return the padded batch,
         along with an array indicating the actual length at each step, and a callback
@@ -154,6 +154,8 @@ class Ops(object):
         lengths = [length for length, i in lengths_indices]
         nB = len(seqs)
         nS = max([len(seq) for seq in seqs])
+        if pad_to is not None and nS < pad_to:
+            nS = pad_to
         arr = self.allocate((nB, nS) + seqs[0].shape[1:], dtype=seqs[0].dtype)
         for arr_i, (length, seqs_i) in enumerate(lengths_indices):
             arr[arr_i, :length] = self.asarray(seqs[seqs_i])
