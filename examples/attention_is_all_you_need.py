@@ -16,6 +16,8 @@ from thinc.api import wrap, chain, with_flatten, layerize
 from thinc.misc import Residual
 from thinc.v2v import Model
 from timeit import default_timer as timer
+import numpy.random
+import random
 
 from spacy.lang.en import English
 from spacy.lang.de import German
