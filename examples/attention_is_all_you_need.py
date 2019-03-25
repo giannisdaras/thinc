@@ -45,10 +45,11 @@ class Batch:
         self.X_mask = Model.ops.allocate((self.nB, self.nL, self.nL), dtype='bool')
         self.y_mask = Model.ops.allocate((self.nB, self.nL, self.nL), dtype='bool')
         for i, length in enumerate(nX):
-            self.X_mask[i, :length, :length] = 1
+            self.X_mask[i, :, :length] = 1
         for i, length in enumerate(nY):
             for j in range(length):
                 self.y_mask[i, j, :j+1] = 1
+            self.y_mask[i, length:, :length] = 1
 
 
 
@@ -117,20 +118,21 @@ def apply_layers(*layers):
 def set_numeric_ids(vocab, docs, vocab_size=0, force_include=("<oov>", "<eos>", "<bos>")):
     """Count word frequencies and use them to set the lex.rank attribute."""
     freqs = Counter()
+    oov_rank = 1
+    vocab["<oov>"].rank = oov_rank
+    vocab.lex_attr_getters[ID] = lambda word: oov_rank
+    rank = 2
+    for lex in vocab:
+        lex.rank = oov_rank
     for doc in docs:
         assert doc.vocab is vocab
         for token in doc:
             lex = vocab[token.orth]
             freqs[lex.orth] += 1
-    rank = 1
     for word in force_include:
         lex = vocab[word]
         lex.rank = rank
         rank += 1
-    oov_rank = vocab["<oov>"].rank
-    for lex in vocab:
-        if lex.text not in force_include:
-            lex.rank = oov_rank
     for orth, count in freqs.most_common():
         lex = vocab[orth]
         if lex.text not in force_include:
@@ -138,7 +140,6 @@ def set_numeric_ids(vocab, docs, vocab_size=0, force_include=("<oov>", "<eos>", 
             rank += 1
         if vocab_size != 0 and rank >= vocab_size:
             break
-    vocab.lex_attr_getters[ID] = lambda word: oov_rank
     output_docs = []
     for doc in docs:
         output_docs.append(Doc(vocab, words=[w.text for w in doc]))
