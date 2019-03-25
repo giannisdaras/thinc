@@ -278,10 +278,10 @@ def main(nH=2, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
         trainer.each_epoch.append(track_progress)
         for X, Y in trainer.iterate(train_X, train_Y):
             (Yh, Y_mask), backprop = model.begin_update((X, Y), drop=dropout)
-            dYh = get_loss(model.ops, Yh, Y, Y_mask)
+            dYh, accuracy = get_loss(model.ops, Yh, Y, Y_mask)
             backprop(dYh, sgd=optimizer)
             losses[-1] += (dYh**2).sum()
-            #train_accuracies[-1] += accuracy
+            train_accuracies[-1] += accuracy
 
 
 if __name__ == '__main__':
