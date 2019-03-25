@@ -1,5 +1,6 @@
 ''' A driver file for attention is all you need paper demonstration '''
 from __future__ import unicode_literals
+import random
 import plac
 from collections import Counter
 import spacy
@@ -194,7 +195,7 @@ def get_loss(ops, Yh, Y_docs, Xmask):
     # At gold[0] is <bos>, so our predictions are right-shifted.
     #Yh[1:] = Yh[:-1]
     is_accurate = (Yh.argmax(axis=-1) == Y.argmax(axis=-1))
-    d_loss = Yh-Y 
+    d_loss = Yh-Y
     for i, doc in enumerate(Y_docs):
         is_accurate[i, len(doc):] = 0
         d_loss[i, len(doc):] = 0
