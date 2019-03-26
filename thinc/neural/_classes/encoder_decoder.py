@@ -38,23 +38,34 @@ class EncoderDecoder(Model):
         Input: nB x nL x nM
         '''
         (X0, Xmask), (Y0, Ymask) = inputs
-        (X1, _), get_dX0 = self.enc.begin_update((X0, Xmask), drop=drop)
-        (_, (Y1, _)), get_dX1_dY0 = self.dec.begin_update(((X1, Xmask), (Y0, Ymask)), drop=drop)
-        word_probs, get_dY1 = self.proj.begin_update(Y1, drop=drop)
+        # b0: x0, y0
+        # b1: x1, y1
+        # b2: x2, y2
+        (X1, _), backprop_encode = self.enc.begin_update((X0, Xmask), drop=drop)
+        (_, (Y1, _)), backprop_decode = self.dec.begin_update(((X1, Xmask), (Y0, Ymask)), drop=drop)
+        word_probs, backprop_output = self.proj.begin_update(Y1, drop=drop)
+        # Right-shift the word probabilities
+        word_probs[:, 1:] = word_probs[:, :-1]
+        word_probs[:, 0] = 0
+
         def finish_update(d_word_probs, sgd=None):
-            dY1 = get_dY1(d_word_probs, sgd=sgd)
-            zeros = Model.ops.xp.zeros(X1.shape, dtype=Model.ops.xp.float32)
-            dX1, dY0 = get_dX1_dY0((zeros, dY1), sgd=sgd)
-            dX0 = get_dX0(dX1, sgd=sgd)
+            # Unshift
+            d_word_probs[:, :-1] = d_word_probs[:, 1:]
+            d_word_probs[:, -1] = 0.
+
+            dY1 = backprop_output(d_word_probs, sgd=sgd)
+            zeros = Model.ops.xp.zeros(X0.shape, dtype=Model.ops.xp.float32)
+            dX1, dY0 = backprop_decode((zeros, dY1), sgd=sgd)
+            dX0 = backprop_encode(dX1, sgd=sgd)
             return (dX0, dY0)
 
-        return (word_probs, Ymask), finish_update
+        return (word_probs, Xmask), finish_update
 
 
 def EncoderLayer(nH, nM):
     return chain(
         MultiHeadedAttention(nM, nH),
-        with_getitem(0, with_reshape(Affine(nM, nM)))
+        with_getitem(0, with_reshape(LayerNorm(Residual(Affine(nM, nM)))))
     )
 
 
@@ -86,5 +97,5 @@ class DecoderLayer(Model):
             d_mixed = bp_output(d_output, sgd=sgd)
             dY1, dX0 = bp_mix_attn(d_mixed, sgd=sgd)
             dY00, dY01 = bp_self_attn(dY1, sgd=sgd)
-            return (dX0 + dXprev, dY00 + dY01) 
+            return (dX0 + dXprev, dY00 + dY01)
         return ((X0, Xmask), (output, Ymask)), finish_update
