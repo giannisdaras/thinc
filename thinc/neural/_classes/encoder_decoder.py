@@ -169,13 +169,18 @@ class MultiHeadedAttention(Model):
         return (x3, mask), finish_update
 
     def attn(self, Q, K, V, mask=None):
-        ''' Compute attention on (query, key, value) triplet '''
+        '''
+        Compute attention on (query, key, value) triplets.
+        The similarity of the (Q, K) pairs are used to
+        compute an attention matrix, which is used to rescale
+        V.
+        '''
         # query shape: nB, nL, nH, nD
 
-        S0, get_dQ_dK = self._attn1(Q, K)
-        S1, get_dS0 = self._attn2(S0, mask)
-        S2, get_dS1 = self._attn3(S1)
-        S3, get_dS2_dV = self._attn4(S2, V)
+        S0, get_dQ_dK = self._scaled_dot_prod(Q, K)
+        S1, get_dS0 = self._mask(S0, mask)
+        S2, get_dS1 = self._softmax(S1)
+        S3, get_dS2_dV = self._apply_attn(S2, V)
 
         def backprop_attn(dS3):
             ''' Attention three inputs, one output '''
@@ -186,7 +191,7 @@ class MultiHeadedAttention(Model):
             return dQ, dK, dV
         return S3, backprop_attn
 
-    def _attn1(self, Q0, K0):
+    def _scaled_dot_prod(self, Q0, K0):
         # nB: #Sentences, nL: #Length, nH: #Heads, nD: #Dimensions
         nB, nL, nH, nD = Q0.shape
         # Shape of Q0: (nB, nL, nH, nD)
@@ -215,7 +220,7 @@ class MultiHeadedAttention(Model):
             return dQ0, dK0
         return S.reshape((nB, nH, nL, nL)), backprop_attn1
 
-    def _attn2(self, S0, mask):
+    def _mask(self, S0, mask):
         S1 = S0.transpose(1, 0, 2, 3)
         S2 = S1 * mask - (1 - mask) * (1e9)
         S3 = S2.transpose(1, 0, 2, 3)
@@ -228,18 +233,19 @@ class MultiHeadedAttention(Model):
 
         return S3, backprop_attn2
 
-    def _attn3(self, S0):
+    def _softmax(self, S0):
         ''' A simple softmax to the scores '''
         # S0: nB, nH, nL, nL
         # S1: nB, nH, nL, nL
         S1 = self.ops.softmax(S0)
 
         def backprop_attn3(dS1):
-            dS0 = self.ops.xp.matmul(dS1, self.ops.xp.matmul(S0, (1 - S0)))
+            dS0 = dS1 * (1-S0)
+            #dS0 = self.ops.xp.matmul(dS1, self.ops.xp.matmul(S0, (1 - S0)))
             return dS0
         return S1, backprop_attn3
 
-    def _attn4(self, S0, V0):
+    def _apply_attn(self, S0, V0):
         ''' Multiplication with values '''
         nB, nH, nL, nL = S0.shape
         nD = V0.shape[-1]
