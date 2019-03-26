@@ -120,7 +120,7 @@ class MultiHeadedAttention(Model):
         self._layers = list(self.linears)
 
     def begin_update(self, input, drop=0.0):
-        # Queries come from inpit[0], keys and values from input[1]
+        # Queries come from input[0], keys and values from input[1]
         if len(input) == 2:
             x0, mask = input
             y0 = x0
