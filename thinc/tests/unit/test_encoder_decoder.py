@@ -19,3 +19,18 @@ class Batch:
             for j in range(length):
                 self.y_mask[i, j, :j+1] = 1
             self.y_mask[i, length:, :length] = 1
+
+@pytest.fixture
+def model_properties():
+    nM = 2
+    nS = 1
+    nH = 1
+    return nM, nS, nH
+
+@pytest.fixture
+def input_properties():
+    nB = 3
+    nL = 4
+    length_X = np.array([2, 4, 3])
+    length_y = np.array([2, 2, 3])
+    return nB, nL, (length_X, length_y)
