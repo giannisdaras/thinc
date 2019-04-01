@@ -42,3 +42,9 @@ def model_instances(input_properties, model_properties):
     X = np.random.rand(nB, nL, nM)
     y = np.random.rand(nB, nL, nM)
     return Batch((X, y), lengths)
+
+def test_masks_shape(model_instances, input_properties):
+    batch = model_instances
+    nB, nL, _ = input_properties
+    assert batch.X_mask.shape == (nB, nL, nL)
+    assert batch.y_mask.shape == batch.X_mask.shape
