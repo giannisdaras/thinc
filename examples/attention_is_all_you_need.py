@@ -47,10 +47,11 @@ class Batch:
         self.X_mask = Model.ops.allocate((self.nB, self.nL, self.nL), dtype='bool')
         self.y_mask = Model.ops.allocate((self.nB, self.nL, self.nL), dtype='bool')
         for i, length in enumerate(nX):
-            self.X_mask[i, :length, :length] = 1
+            self.X_mask[i, :, :length] = 1
         for i, length in enumerate(nY):
             for j in range(length):
                 self.y_mask[i, j, :j+1] = 1
+            self.y_mask[i, length:, :length] = 1
 
 
 
@@ -174,6 +175,19 @@ def resize_vectors(vectors):
 
 def create_batch():
     def create_batch_forward(Xs_Ys, drop=0.):
+        '''
+        Create a batch object from Xs, Ys pair
+        Args:
+            Xs_Ys:
+                Xs: nB, nL1, nM
+                Ys: nB, nL2, nM
+        Returns Batch object:
+            Xs: nB, nL, nM
+            Ys: nB, nL, nM
+            X_mask: nB, nL, nL
+            y_mask: nB, nL, nL
+        where nL = max(nL1, nL2)
+        '''
         Xs, Ys = Xs_Ys
         nX = model.ops.asarray([x.shape[0] for x in Xs], dtype='i')
         nY = model.ops.asarray([y.shape[0] for y in Ys], dtype='i')
