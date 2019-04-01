@@ -48,3 +48,21 @@ def test_masks_shape(model_instances, input_properties):
     nB, nL, _ = input_properties
     assert batch.X_mask.shape == (nB, nL, nL)
     assert batch.y_mask.shape == batch.X_mask.shape
+
+def test_X_mask(model_instances, input_properties):
+    batch = model_instances
+    X_mask = batch.X_mask
+    mask1 = np.array([[True, True, False, False],
+                     [True, True, False, False],
+                     [True, True, False, False],
+                     [True, True, False, False]])
+    mask2 = np.array([[True, True, True, True],
+                     [True, True, True, True],
+                     [True, True, True, True],
+                     [True, True, True, True]])
+    mask3 = np.array([[True, True, True, False],
+                     [True, True, True, False],
+                     [True, True, True, False],
+                     [True, True, True, False]])
+    correct_X_mask = np.array([mask1, mask2, mask3])
+    assert np.array_equal(X_mask, correct_X_mask)
