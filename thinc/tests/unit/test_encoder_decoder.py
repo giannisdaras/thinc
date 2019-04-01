@@ -103,3 +103,15 @@ def test_y_mask(model_instances, input_properties):
                       [True, True, True, False]])
     correct_y_mask = np.array([mask1, mask2, mask3])
     assert np.array_equal(y_mask, correct_y_mask)
+
+
+def test_basic_with_reshape(sgd):
+    X = np.random.rand(10, 20, 30)
+    y = X
+    model = with_reshape(Affine(30, 30))
+    yh, backprop = model.begin_update(X)
+    loss1 = ((yh - y) ** 2).sum()
+    backprop(yh - y, sgd)
+    yh, backprop = model.begin_update(X)
+    loss2 = ((yh - y) ** 2).sum()
+    assert loss2 < loss1
