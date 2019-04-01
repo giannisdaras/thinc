@@ -7,7 +7,7 @@ import plac
 from collections import Counter
 import spacy
 from spacy.tokens import Doc
-from spacy.attrs import ID, ORTH
+from spacy.attrs import ID, ORTH, SHAPE, PREFIX, SUFFIX
 from thinc.extra.datasets import get_iwslt
 from thinc.loss import categorical_crossentropy
 from thinc.neural.util import get_array_module
@@ -15,6 +15,7 @@ from spacy._ml import link_vectors_to_models
 from thinc.neural.util import to_categorical, minibatch
 from thinc.neural._classes.encoder_decoder import EncoderDecoder
 from thinc.neural._classes.embed import Embed
+from thinc.misc import FeatureExtracter
 from thinc.api import wrap, chain, with_flatten, layerize
 from thinc.misc import Residual
 from thinc.v2v import Model
@@ -52,7 +53,7 @@ class Batch:
             for j in range(length):
                 self.y_mask[i, j, :j+1] = 1
             self.y_mask[i, length:, :length] = 1
-
+        self.y_mask = self.X_mask
 
 
 def spacy_tokenize(X_tokenizer, Y_tokenizer, X, Y, max_length=50):
@@ -65,7 +66,6 @@ def spacy_tokenize(X_tokenizer, Y_tokenizer, X, Y, max_length=50):
             X_out.append(xdoc)
             Y_out.append(ydoc)
     return X_out, Y_out
-
 
 
 def PositionEncode(max_length, model_size):
@@ -193,15 +193,13 @@ def create_batch():
         nY = model.ops.asarray([y.shape[0] for y in Ys], dtype='i')
 
         nL = max(nX.max(), nY.max())
-        Xs, _, unpad_dXs = model.ops.square_sequences(Xs, pad_to=nL)
-        Ys, _, unpad_dYs = model.ops.square_sequences(Ys, pad_to=nL)
-        Xs = Xs.transpose((1, 0, 2))
-        Ys = Ys.transpose((1, 0, 2))
+        Xs, unpad_dXs = pad_sequences(model.ops, Xs, pad_to=nL)
+        Ys, unpad_dYs = pad_sequences(model.ops, Ys, pad_to=nL)
 
         def create_batch_backward(dXs_dYs, sgd=None):
             dXs, dYs = dXs_dYs
-            dXs = unpad_dXs(dXs.transpose((1, 0, 2)))
-            dYs = unpad_dYs(dYs.transpose((1, 0, 2)))
+            dXs = unpad_dXs(dXs)
+            dYs = unpad_dYs(dYs)
             return dXs, dYs
 
         batch = Batch((Xs, Ys), (nX, nY))
@@ -210,23 +208,44 @@ def create_batch():
     return model
 
 
+def pad_sequences(ops, seqs_in, pad_to=None):
+    lengths = ops.asarray([len(seq) for seq in seqs_in], dtype='i')
+    nB = len(seqs_in)
+    if pad_to is None:
+        pad_to = lengths.max()
+    arr = ops.allocate((nB, pad_to) + seqs_in[0].shape[1:], dtype=seqs_in[0].dtype)
+    for arr_i, seq in enumerate(seqs_in):
+        arr[arr_i, :seq.shape[0]] = ops.asarray(seq)
+
+    def unpad(padded):
+        unpadded = [None] * len(lengths)
+        for i in range(padded.shape[0]):
+            unpadded[i] = padded[i, :lengths[i]]
+        return unpadded
+    return arr, unpad
+
+
 def get_loss(ops, Yh, Y_docs, Xmask):
     Y_ids = docs2ids(Y_docs)
     guesses = Yh.argmax(axis=-1)
+    #print("Tru", Y_ids[0][:5], "Sys", guesses[0, :5])
     nC = Yh.shape[-1]
     Y = [to_categorical(y, nb_classes=nC) for y in Y_ids]
     nL = max(Yh.shape[1], max(y.shape[0] for y in Y))
-    Y, _, _ = ops.square_sequences(Y, pad_to=nL)
-    Y = Y.transpose((1, 0, 2))
-    # TODO: Right-shift. At timestep 0 we *see* <bos> and predict word 0
-    # At gold[0] is <bos>, so our predictions are right-shifted.
-    # Yh[1:] = Yh[:-1]
+    Y, _ = pad_sequences(ops, Y, pad_to=nL)
     is_accurate = (Yh.argmax(axis=-1) == Y.argmax(axis=-1))
     d_loss = Yh-Y
     for i, doc in enumerate(Y_docs):
         is_accurate[i, len(doc):] = 0
         d_loss[i, len(doc):] = 0
     return d_loss, is_accurate.sum()
+
+def FancyEmbed(width, rows, cols=(ORTH, SHAPE, PREFIX, SUFFIX)):
+    from thinc.i2v import HashEmbed
+    from thinc.v2v import Maxout
+    from thinc.api import chain, concatenate
+    tables = [HashEmbed(width, rows, column=i) for i in range(len(cols))]
+    return chain(concatenate(*tables), Maxout(width, width*len(tables), pieces=3))
 
 
 @plac.annotations(
@@ -266,6 +285,8 @@ def main(nH=2, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
     nTGT = VOCAB_SIZE + 1
 
     with Model.define_operators({">>": chain}):
+        embed_cols = [ORTH, SHAPE, PREFIX, SUFFIX]
+        extractor = FeatureExtracter(attrs=embed_cols)
         position_encode = PositionEncode(MAX_LENGTH, MODEL_SIZE)
         model = (
             apply_layers(docs2ids, docs2ids)
