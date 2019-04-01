@@ -13,15 +13,15 @@ def with_reshape(layer):
         initial_shape = X.shape
         final_shape = list(initial_shape[:-1]) + [layer.nO]
         nB = X.shape[0]
-        nT = X.shape[1]
-        X2d = X.reshape(-1, X.shape[2])
+        nL = X.shape[1]
+        X2d = X.reshape(-1, X.shape[-1])
         X2d = X2d.astype(layer.ops.xp.float32)
         Y2d, Y2d_backprop = layer.begin_update(X2d, drop=drop)
         Y = Y2d.reshape(final_shape)
 
         def with_reshape_backward(dY, sgd=None):
-            dY = dY.reshape(nB*nT, -1).astype(layer.ops.xp.float32)
-            return Y2d_backprop(dY, sgd=sgd).reshape(initial_shape)
+            dY2d = dY.reshape(nB*nL, -1).astype(layer.ops.xp.float32)
+            return Y2d_backprop(dY2d, sgd=sgd).reshape(initial_shape)
         return Y, with_reshape_backward
     return wrap(with_reshape_forward, layer)
 
@@ -55,13 +55,9 @@ class EncoderDecoder(Model):
         Input: nB x nL x nM
         '''
         (X0, Xmask), (Y0, Ymask) = inputs
-        # b0: x0, y0
-        # b1: x1, y1
-        # b2: x2, y2
         (X1, _), get_dX0 = self.enc.begin_update((X0, Xmask), drop=drop)
         (_, (Y1, _)), get_dX1_dY0 = self.dec.begin_update(((X1, Xmask), (Y0, Ymask)), drop=drop)
         word_probs, get_dY1 = self.proj.begin_update(Y1, drop=drop)
-
         def finish_update(d_word_probs, sgd=None):
             dY1 = get_dY1(d_word_probs, sgd=sgd)
             zeros = Model.ops.xp.zeros(X1.shape, dtype=Model.ops.xp.float32)
