@@ -220,7 +220,7 @@ def get_loss(ops, Yh, Y_docs, Xmask):
     Y = Y.transpose((1, 0, 2))
     # TODO: Right-shift. At timestep 0 we *see* <bos> and predict word 0
     # At gold[0] is <bos>, so our predictions are right-shifted.
-    #Yh[1:] = Yh[:-1]
+    # Yh[1:] = Yh[:-1]
     is_accurate = (Yh.argmax(axis=-1) == Y.argmax(axis=-1))
     d_loss = Yh-Y
     for i, doc in enumerate(Y_docs):
