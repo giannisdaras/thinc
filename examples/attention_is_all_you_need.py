@@ -1,5 +1,6 @@
 ''' A driver file for attention is all you need paper demonstration '''
 from __future__ import unicode_literals
+from collections import defaultdict
 import random
 import numpy
 import plac
@@ -18,14 +19,13 @@ from thinc.api import wrap, chain, with_flatten, layerize
 from thinc.misc import Residual
 from thinc.v2v import Model
 from timeit import default_timer as timer
-
 from spacy.lang.en import English
 from spacy.lang.de import German
 import pickle
 import sys
 MODEL_SIZE = 300
 MAX_LENGTH = 50
-VOCAB_SIZE = 20
+VOCAB_SIZE = 10000
 
 random.seed(0)
 numpy.random.seed(0)
@@ -148,6 +148,18 @@ def set_numeric_ids(vocab, docs, vocab_size=0, force_include=("<oov>", "<eos>", 
             assert token.rank != 0, (token.text, token.vocab[token.text].rank)
     return output_docs
 
+def get_dicts(vocab):
+    '''
+        Returns word2indx, indx2word
+    '''
+    word2indx = defaultdict(lambda x: vocab['<oov'].rank)
+    indx2word = defaultdict(lambda x: '<oov>')
+    for lex in vocab:
+        word2indx[lex.text] = lex.rank
+        indx2word[lex.rank] = lex.text
+    return word2indx, indx2word
+
+
 
 def resize_vectors(vectors):
     xp = get_array_module(vectors.data)
@@ -235,7 +247,9 @@ def main(nH=2, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
                                     test_X[-lim:], test_Y[-lim:], MAX_LENGTH)
     train_X = set_numeric_ids(nlp_en.vocab, train_X, vocab_size=VOCAB_SIZE)
     train_Y = set_numeric_ids(nlp_de.vocab, train_Y, vocab_size=VOCAB_SIZE)
-    nTGT = VOCAB_SIZE+1
+    en_word2indx, en_indx2word = get_dicts(nlp_en.vocab)
+    de_word2indx, de_indx2word = get_dicts(nlp_de.vocab)
+    nTGT = VOCAB_SIZE + 1
 
     with Model.define_operators({">>": chain}):
         position_encode = PositionEncode(MAX_LENGTH, MODEL_SIZE)
