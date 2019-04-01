@@ -34,3 +34,11 @@ def input_properties():
     length_X = np.array([2, 4, 3])
     length_y = np.array([2, 2, 3])
     return nB, nL, (length_X, length_y)
+
+@pytest.fixture
+def model_instances(input_properties, model_properties):
+    nB, nL, lengths = input_properties
+    nM, _, _ = model_properties
+    X = np.random.rand(nB, nL, nM)
+    y = np.random.rand(nB, nL, nM)
+    return Batch((X, y), lengths)
