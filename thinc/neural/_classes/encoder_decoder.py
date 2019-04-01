@@ -1,9 +1,10 @@
-import math
-import pdb
+# coding: utf8
+from __future__ import unicode_literals, print_function
 from .model import Model
 from ...api import chain, clone, with_getitem, wrap, with_reshape
 from .softmax import Softmax
 from .layernorm import LayerNorm
+from .maxout import Maxout
 from .resnet import Residual
 from .affine import Affine
 from .multiheaded_attention import MultiHeadedAttention
@@ -26,8 +27,9 @@ class EncoderDecoder(Model):
         self.nM = nM
         self.nTGT = nTGT
         self.enc = clone(EncoderLayer(self.nH, self.nM), self.nS)
-        self.dec = clone(DecoderLayer(self.nH, self.nM), self.nS)
-        self.proj = with_reshape(Softmax(nO=nTGT, nI=nM))
+        #self.dec = clone(DecoderLayer(self.nH, self.nM), self.nS)
+        self.dec = PoolingDecoder(self.nM)
+        self.proj = with_reshape(chain(Maxout(nO=nM, nI=nM), Softmax(nO=nTGT, nI=nM)))
         self._layers = [self.enc, self.dec, self.proj]
 
     def begin_update(self, inputs, drop=0.0):
@@ -42,6 +44,7 @@ class EncoderDecoder(Model):
         # b1: x1, y1
         # b2: x2, y2
         (X1, _), backprop_encode = self.enc.begin_update((X0, Xmask), drop=drop)
+        X1 = X0
         (_, (Y1, _)), backprop_decode = self.dec.begin_update(((X1, Xmask), (Y0, Ymask)), drop=drop)
         word_probs, backprop_output = self.proj.begin_update(Y1, drop=drop)
         # Right-shift the word probabilities
@@ -52,7 +55,6 @@ class EncoderDecoder(Model):
             # Unshift
             d_word_probs[:, :-1] = d_word_probs[:, 1:]
             d_word_probs[:, -1] = 0.
-
             dY1 = backprop_output(d_word_probs, sgd=sgd)
             zeros = Model.ops.xp.zeros(X0.shape, dtype=Model.ops.xp.float32)
             dX1, dY0 = backprop_decode((zeros, dY1), sgd=sgd)
@@ -65,8 +67,55 @@ class EncoderDecoder(Model):
 def EncoderLayer(nH, nM):
     return chain(
         MultiHeadedAttention(nM, nH),
-        with_getitem(0, with_reshape(LayerNorm(Residual(Affine(nM, nM)))))
+        with_getitem(0,
+            with_reshape(
+                clone(
+                    Residual(
+                        LayerNorm(
+                            Maxout(nM, nM, pieces=3))), 2)))
     )
+
+
+class PoolingDecoder(Model):
+    def __init__(self, nM):
+        Model.__init__(self)
+        self.nM = nM
+        self.ffd = Maxout(nO=nM, nI=nM*3, pieces=3)
+        self._layers = [self.ffd]
+
+    def begin_update(self, X_Y, drop=0.):
+        (X0, Xmask), (Y0, Ymask) = X_Y
+        # TODO: Masking
+        Ypool = Y0.max(axis=1, keepdims=True)
+        Xpool = X0.max(axis=1, keepdims=True)
+        mixed = self.ops.allocate((X0.shape[0], X0.shape[1], self.nM*3))
+        mixed[:, :, :self.nM] = Xpool
+        mixed[:, :, self.nM:self.nM*2] = Ypool
+        mixed[:, :, self.nM*2:] = Y0
+        output, bp_output = self.ffd.begin_update(mixed.reshape((-1, self.nM*3)))
+        output = output.reshape((X0.shape[0], X0.shape[1], output.shape[1]))
+
+        def backprop_pooling_decoder(dX_d_output, sgd=None):
+            dXin, d_output = dX_d_output
+            d_output = d_output.reshape((X0.shape[0]*X0.shape[1], d_output.shape[2]))
+            d_mixed = bp_output(d_output, sgd=sgd)
+            d_mixed = d_mixed.reshape((X0.shape[0], X0.shape[1], d_mixed.shape[1]))
+            dXpool = d_mixed[:, :, :self.nM]
+            dYpool = d_mixed[:, :, self.nM:self.nM*2]
+            dY0 = d_mixed[:, :, self.nM*2:]
+            dX0 = self.ops.allocate(X0.shape)
+            for i in range(X0.shape[0]):
+                for j in range(X0.shape[1]):
+                    for k in range(X0.shape[2]):
+                        if X0[i, j, k] >= Xpool[i, 0, k]:
+                            dX0[i, j, k] += dXpool[i, j, k]
+            for i in range(Y0.shape[0]):
+                for j in range(Y0.shape[1]):
+                    for k in range(Y0.shape[2]):
+                        if Y0[i, j, k] >= Ypool[i, 0, k]:
+                            dY0[i, j, k] += dYpool[i, j, k]
+            return dXin+dX0, dY0
+        return ((X0, Xmask), (output, Ymask)), backprop_pooling_decoder
 
 
 class DecoderLayer(Model):
@@ -76,12 +125,12 @@ class DecoderLayer(Model):
         self.nM = nM
         self.x_attn = MultiHeadedAttention(nM, nH)
         self.y_attn = MultiHeadedAttention(nM, nH)
-        self.ffd = with_reshape(LayerNorm(Residual(Affine(nM, nM))))
+        self.ffd = with_reshape(Residual(LayerNorm(Maxout(nM, nM, pieces=3))))
         self._layers = [self.x_attn, self.y_attn, self.ffd]
 
     def begin_update(self, X_Y, drop=0.0):
         (X0, Xmask), (Y0, Ymask) = X_Y
-        (Y1, _), bp_self_attn = self.y_attn.begin_update((Y0, Y0, Ymask))
+        (Y1, _), bp_self_attn = self.y_attn.begin_update((Y0, Ymask))
         # Arg0 to the multi-head attention is the queries,
         # From AIYN paper,
         # "In "encoder-decoder attention" layers, the queries come from
@@ -96,10 +145,8 @@ class DecoderLayer(Model):
             dXprev, d_output = dXprev_d_output
             d_mixed = bp_output(d_output, sgd=sgd)
             dY1, dX0 = bp_mix_attn(d_mixed, sgd=sgd)
-            dY00, dY01 = bp_self_attn(dY1, sgd=sgd)
-            return (dX0+dXprev, dY00+dY01)
+            dY0 = bp_self_attn(dY1, sgd=sgd)
+            dX0 = dX0+dXprev
+            return (dX0+dXprev, dY0)
 
         return ((X0, Xmask), (output, Ymask)), finish_update
-
-
-
