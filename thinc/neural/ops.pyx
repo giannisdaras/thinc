@@ -142,14 +142,15 @@ class Ops(object):
         assert len(unflat) == len(lengths)
         return unflat
 
-    def square_sequences(self, seqs, pad_to=None):
+    def square_sequences(self, seqs, sort=True, pad_to=None):
         '''Sort a batch of sequence by decreasing length, pad, and transpose
         so that the outer dimension is the timestep. Return the padded batch,
         along with an array indicating the actual length at each step, and a callback
         to reverse the transformation.
         '''
         lengths_indices = [(len(seq), i) for i, seq in enumerate(seqs)]
-        lengths_indices.sort(reverse=True)
+        if sort:
+            lengths_indices.sort(reverse=True)
         indices = [i for length, i in lengths_indices]
         lengths = [length for length, i in lengths_indices]
         nB = len(seqs)
