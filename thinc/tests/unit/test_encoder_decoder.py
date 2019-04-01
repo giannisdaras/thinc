@@ -20,12 +20,14 @@ class Batch:
                 self.y_mask[i, j, :j+1] = 1
             self.y_mask[i, length:, :length] = 1
 
+
 @pytest.fixture
 def model_properties():
     nM = 2
     nS = 1
     nH = 1
     return nM, nS, nH
+
 
 @pytest.fixture
 def input_properties():
@@ -35,6 +37,7 @@ def input_properties():
     length_y = np.array([2, 2, 3])
     return nB, nL, (length_X, length_y)
 
+
 @pytest.fixture
 def model_instances(input_properties, model_properties):
     nB, nL, lengths = input_properties
@@ -43,11 +46,13 @@ def model_instances(input_properties, model_properties):
     y = np.random.rand(nB, nL, nM)
     return Batch((X, y), lengths)
 
+
 def test_masks_shape(model_instances, input_properties):
     batch = model_instances
     nB, nL, _ = input_properties
     assert batch.X_mask.shape == (nB, nL, nL)
     assert batch.y_mask.shape == batch.X_mask.shape
+
 
 def test_X_mask(model_instances, input_properties):
     batch = model_instances
@@ -66,3 +71,22 @@ def test_X_mask(model_instances, input_properties):
                      [True, True, True, False]])
     correct_X_mask = np.array([mask1, mask2, mask3])
     assert np.array_equal(X_mask, correct_X_mask)
+
+
+def test_y_mask(model_instances, input_properties):
+    batch = model_instances
+    y_mask = batch.y_mask
+    mask1 = np.array([[True, False, False, False],
+                      [True, True, False, False],
+                      [True, True, False, False],
+                      [True, True, False, False]])
+    mask2 = np.array([[True, False, False, False],
+                      [True, True, False, False],
+                      [True, True, False, False],
+                      [True, True, False, False]])
+    mask3 = np.array([[True, False, False, False],
+                      [True, True, False, False],
+                      [True, True, True, False],
+                      [True, True, True, False]])
+    correct_y_mask = np.array([mask1, mask2, mask3])
+    assert np.array_equal(y_mask, correct_y_mask)
