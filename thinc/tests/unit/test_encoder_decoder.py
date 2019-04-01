@@ -1,7 +1,11 @@
 import pytest
 import numpy as np
 from thinc.v2v import Model
-from ...neural._classes.encoder_decoder import EncoderDecoder
+from ...neural._classes.encoder_decoder import EncoderDecoder, with_reshape, \
+    MultiHeadedAttention
+from ...neural._classes.affine import Affine
+from ...neural.optimizers import SGD
+from ...neural.ops import NumpyOps
 
 class Batch:
     def __init__(self, pair, lengths):
@@ -27,6 +31,15 @@ def model_properties():
     nS = 1
     nH = 1
     return nM, nS, nH
+
+@pytest.fixture
+def sgd():
+    return SGD(NumpyOps(), 0.001)
+
+@pytest.fixture
+def model(model_properties):
+    nM, nS, nH = model_properties
+    return EncoderDecoder(nS=nS, nH=nH, nM=nM)
 
 
 @pytest.fixture
