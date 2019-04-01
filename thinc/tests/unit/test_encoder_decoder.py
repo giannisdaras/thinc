@@ -43,6 +43,12 @@ def model(model_properties):
 
 
 @pytest.fixture
+def beast(model_properties):
+    nM, _, nH = model_properties
+    return MultiHeadedAttention(nM=nM, nH=nH)
+
+
+@pytest.fixture
 def input_properties():
     nB = 3
     nL = 4
@@ -115,3 +121,15 @@ def test_basic_with_reshape(sgd):
     yh, backprop = model.begin_update(X)
     loss2 = ((yh - y) ** 2).sum()
     assert loss2 < loss1
+
+def test_attn_shapes(input_properties, model_properties, model_instances, beast):
+    nB, nL, _ = input_properties
+    nM, _, _ = model_properties
+    model = beast
+    batch = model_instances
+    X = batch.X
+    y = batch.y
+    X_mask = batch.X_mask
+    assert X.shape == (nB, nL, nM)
+    assert y.shape == (nB, nL, nM)
+    
