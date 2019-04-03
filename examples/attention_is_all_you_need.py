@@ -152,8 +152,8 @@ def get_dicts(vocab):
     '''
         Returns word2indx, indx2word
     '''
-    word2indx = defaultdict(lambda x: vocab['<oov'].rank)
-    indx2word = defaultdict(lambda x: '<oov>')
+    word2indx = defaultdict(lambda: vocab['<oov'].rank)
+    indx2word = defaultdict(lambda: '<oov>')
     for lex in vocab:
         word2indx[lex.text] = lex.rank
         indx2word[lex.rank] = lex.text
