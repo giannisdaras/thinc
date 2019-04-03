@@ -29,7 +29,7 @@ class EncoderDecoder(Model):
         self.enc = clone(EncoderLayer(self.nH, self.nM), self.nS)
         #self.dec = clone(DecoderLayer(self.nH, self.nM), self.nS)
         self.dec = PoolingDecoder(self.nM)
-        self.proj = with_reshape(chain(Maxout(nO=nM, nI=nM), Softmax(nO=nTGT, nI=nM)))
+        self.proj = with_reshape(Softmax(nO=nTGT, nI=nM))
         self._layers = [self.enc, self.dec, self.proj]
 
     def begin_update(self, inputs, drop=0.0):
@@ -67,12 +67,7 @@ class EncoderDecoder(Model):
 def EncoderLayer(nH, nM):
     return chain(
         MultiHeadedAttention(nM, nH),
-        with_getitem(0,
-            with_reshape(
-                clone(
-                    Residual(
-                        LayerNorm(
-                            Maxout(nM, nM, pieces=3))), 2)))
+        with_getitem(0, with_reshape(Maxout(nM, nM, pieces=3)))
     )
 
 
@@ -125,7 +120,7 @@ class DecoderLayer(Model):
         self.nM = nM
         self.x_attn = MultiHeadedAttention(nM, nH)
         self.y_attn = MultiHeadedAttention(nM, nH)
-        self.ffd = with_reshape(Residual(LayerNorm(Maxout(nM, nM, pieces=3))))
+        self.ffd = with_reshape(Maxout(nM, nM, pieces=3))
         self._layers = [self.x_attn, self.y_attn, self.ffd]
 
     def begin_update(self, X_Y, drop=0.0):

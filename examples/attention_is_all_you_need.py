@@ -53,7 +53,6 @@ class Batch:
             for j in range(length):
                 self.y_mask[i, j, :j+1] = 1
             self.y_mask[i, length:, :length] = 1
-        self.y_mask = self.X_mask
 
 
 def spacy_tokenize(X_tokenizer, Y_tokenizer, X, Y, max_length=50):
