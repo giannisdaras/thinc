@@ -1,5 +1,6 @@
 ''' A driver file for attention is all you need paper demonstration '''
 from __future__ import unicode_literals
+from collections import defaultdict
 import plac
 from collections import Counter
 import spacy
@@ -148,6 +149,29 @@ def set_numeric_ids(vocab, docs, vocab_size=0, force_include=("<oov>", "<eos>", 
             assert token.rank != 0, (token.text, token.vocab[token.text].rank)
     return output_docs
 
+def get_dicts(vocab):
+    '''
+        Returns word2indx, indx2word
+    '''
+    word2indx = defaultdict(lambda: vocab['<oov'].rank)
+    indx2word = defaultdict(lambda: '<oov>')
+    for lex in vocab:
+        word2indx[lex.text] = lex.rank
+        indx2word[lex.rank] = lex.text
+    return word2indx, indx2word
+
+
+
+def resize_vectors(vectors):
+    xp = get_array_module(vectors.data)
+    shape = (int(vectors.shape[0]*1.1), vectors.shape[1])
+    if not hasattr(xp, 'resize'):
+        vectors.data = vectors.data.get()
+        vectors.resize(shape)
+        vectors.data = xp.array(vectors.data)
+    else:
+        vectors.resize(shape)
+
 
 def create_batch():
     def create_batch_forward(Xs_Ys, drop=0.):
@@ -210,7 +234,7 @@ def get_loss(ops, Yh, Y_docs, Xmask):
     nL = max(Yh.shape[1], max(y.shape[0] for y in Y))
     Y, _ = pad_sequences(ops, Y, pad_to=nL)
     is_accurate = (Yh.argmax(axis=-1) == Y.argmax(axis=-1))
-    d_loss = Yh-Y 
+    d_loss = Yh-Y
     for i, doc in enumerate(Y_docs):
         is_accurate[i, len(doc):] = 0
         d_loss[i, len(doc):] = 0
@@ -256,6 +280,8 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
                                     test_X[-lim:], test_Y[-lim:], MAX_LENGTH)
     train_X = set_numeric_ids(nlp_en.vocab, train_X, vocab_size=VOCAB_SIZE)
     train_Y = set_numeric_ids(nlp_de.vocab, train_Y, vocab_size=VOCAB_SIZE)
+    en_word2indx, en_indx2word = get_dicts(nlp_en.vocab)
+    de_word2indx, de_indx2word = get_dicts(nlp_de.vocab)
     nTGT = VOCAB_SIZE
 
     with Model.define_operators({">>": chain}):
@@ -308,7 +334,8 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
         for X, Y in trainer.iterate(train_X, train_Y):
             (Yh, X_mask), backprop = model.begin_update((X, Y), drop=dropout)
             sentence = get_model_sentence(Yh, de_indx2word)
-            # print(sentence)
+            # print("Real sentence: {}".format(Y[0].text))
+            # print("Model sentence: {}".format(' '.join(sentence[0])))
             dYh, C = get_loss(model.ops, Yh, Y, X_mask)
             backprop(dYh, sgd=optimizer)
             losses[-1] += (dYh**2).sum()
