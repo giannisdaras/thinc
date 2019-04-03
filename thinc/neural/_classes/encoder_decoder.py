@@ -67,7 +67,7 @@ class EncoderDecoder(Model):
 def EncoderLayer(nH, nM):
     return chain(
         MultiHeadedAttention(nM, nH),
-        with_getitem(0, with_reshape(Maxout(nM, nM, pieces=3)))
+        with_getitem(0, with_reshape(LayerNorm(Maxout(nM, nM, pieces=3))))
     )
 
 
@@ -75,7 +75,7 @@ class PoolingDecoder(Model):
     def __init__(self, nM):
         Model.__init__(self)
         self.nM = nM
-        self.ffd = Maxout(nO=nM, nI=nM*3, pieces=3)
+        self.ffd = LayerNorm(Maxout(nO=nM, nI=nM*3, pieces=3))
         self._layers = [self.ffd]
 
     def begin_update(self, X_Y, drop=0.):
@@ -120,7 +120,7 @@ class DecoderLayer(Model):
         self.nM = nM
         self.x_attn = MultiHeadedAttention(nM, nH)
         self.y_attn = MultiHeadedAttention(nM, nH)
-        self.ffd = with_reshape(Maxout(nM, nM, pieces=3))
+        self.ffd = with_reshape(LayerNorm(Maxout(nM, nM, pieces=3)))
         self._layers = [self.x_attn, self.y_attn, self.ffd]
 
     def begin_update(self, X_Y, drop=0.0):
