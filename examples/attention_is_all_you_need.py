@@ -299,6 +299,7 @@ def main(nH=2, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
 
     losses = [0.]
     train_accuracies = [0.]
+    train_totals = [0.]
     dev_accuracies = [0.]
     dev_loss = [0.]
     def track_progress():
@@ -307,29 +308,35 @@ def main(nH=2, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
         for batch in minibatch(zip(dev_X, dev_Y), size=1024):
             X, Y = zip(*batch)
             Yh, Y_mask = model((X, Y))
-            L = get_loss(model.ops, Yh, Y, Y_mask)
-            #correct += C
+            L, C = get_loss(model.ops, Yh, Y, Y_mask)
+            correct += C
             dev_loss[-1] += (L**2).sum()
             total += len(Y)
-        #dev_accuracies[-1] = correct / total
-        #print(len(losses), losses[-1], train_accuracies[-1], dev_loss[-1], dev_accuracies[-1])
-        print(len(losses), losses[-1], dev_loss[-1])
+        dev_accuracies[-1] = correct / total
+        n_train = train_totals[-1]
+        print(len(losses), losses[-1], train_accuracies[-1]/n_train,
+            dev_loss[-1], dev_accuracies[-1])
         dev_loss.append(0.)
         losses.append(0.)
         train_accuracies.append(0.)
         dev_accuracies.append(0.)
+        train_totals.append(0.)
 
 
     with model.begin_training(batch_size=nB, nb_epoch=nE) as (trainer, optimizer):
         trainer.dropout = dropout
         trainer.dropout_decay = 1e-4
+        optimizer.alpha = 0.001
+        optimizer.L2 = 1e-6
+        optimizer.max_grad_norm = 1.0
         trainer.each_epoch.append(track_progress)
         for X, Y in trainer.iterate(train_X, train_Y):
-            (Yh, Y_mask), backprop = model.begin_update((X, Y), drop=dropout)
-            dYh, accuracy = get_loss(model.ops, Yh, Y, Y_mask)
+            (Yh, X_mask), backprop = model.begin_update((X, Y), drop=dropout)
+            dYh, C = get_loss(model.ops, Yh, Y, X_mask)
             backprop(dYh, sgd=optimizer)
             losses[-1] += (dYh**2).sum()
-            train_accuracies[-1] += accuracy
+            train_accuracies[-1] += C
+            train_totals[-1] += sum(len(y) for y in Y)
 
 
 if __name__ == '__main__':
