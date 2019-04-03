@@ -224,6 +224,19 @@ def pad_sequences(ops, seqs_in, pad_to=None):
     return arr, unpad
 
 
+def get_model_sentence(Yh, indx2word):
+    '''
+        Returns a sentence from the output of the projection layer
+    '''
+    sentences = []
+    argmaxed = Model.ops.xp.argmax(Yh, axis=-1)
+    for sentence in argmaxed:
+        tokens = []
+        for num in sentence:
+            tokens.append(indx2word[num])
+        sentences.append(tokens)
+    return sentences
+
 def get_loss(ops, Yh, Y_docs, Xmask):
     Y_ids = docs2ids(Y_docs)
     guesses = Yh.argmax(axis=-1)
@@ -332,6 +345,8 @@ def main(nH=2, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
         trainer.each_epoch.append(track_progress)
         for X, Y in trainer.iterate(train_X, train_Y):
             (Yh, X_mask), backprop = model.begin_update((X, Y), drop=dropout)
+            sentence = get_model_sentence(Yh, de_indx2word)
+            # print(sentence)
             dYh, C = get_loss(model.ops, Yh, Y, X_mask)
             backprop(dYh, sgd=optimizer)
             losses[-1] += (dYh**2).sum()
