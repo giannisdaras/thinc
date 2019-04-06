@@ -151,7 +151,7 @@ class DecoderLayer(Model):
             d_mixed = bp_output(d_output, sgd=sgd)
             dY1, dX0 = bp_mix_attn(d_mixed, sgd=sgd)
             dY0 = bp_self_attn(dY1, sgd=sgd)
-            dX0 = dX0+dXprev
-            return (dX0+dXprev, dY0)
+            dX0 = dX0 + dXprev
+            return (dX0, dY0)
 
         return ((X0, Xmask), (output, Ymask)), finish_update
