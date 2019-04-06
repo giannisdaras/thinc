@@ -8,7 +8,7 @@ from .maxout import Maxout
 from .resnet import Residual
 from .affine import Affine
 from .multiheaded_attention import MultiHeadedAttention
-
+import math
 
 class EncoderDecoder(Model):
     def __init__(self, nS=1, nH=6, nM=300, nTGT=10000):
@@ -80,9 +80,19 @@ class PoolingDecoder(Model):
 
     def begin_update(self, X_Y, drop=0.):
         (X0, Xmask), (Y0, Ymask) = X_Y
-        # TODO: Masking
-        Ypool = Y0.max(axis=1, keepdims=True)
-        Xpool = X0.max(axis=1, keepdims=True)
+
+        X_masked = self.ops.xp.copy(X0)
+        X_masked[Xmask[:, 0, :] == 0] = -math.inf
+        Xpool = X_masked.max(axis=1, keepdims=True)
+
+        Y_masked = self.ops.xp.copy(Y0)
+        Y_masked[Ymask[:, -1, :] == 0] = -math.inf
+        Ypool = self.ops.allocate((X0.shape[0], X0.shape[1], self.nM))
+        
+        # maxing only over previous elements
+        for i in range(X0.shape[1]):
+            Ypool[:, i, :] = Y_masked[:, :i+1, :].max(axis=1, keepdims=True).squeeze()
+
         mixed = self.ops.allocate((X0.shape[0], X0.shape[1], self.nM*3))
         mixed[:, :, :self.nM] = Xpool
         mixed[:, :, self.nM:self.nM*2] = Ypool
@@ -107,7 +117,7 @@ class PoolingDecoder(Model):
             for i in range(Y0.shape[0]):
                 for j in range(Y0.shape[1]):
                     for k in range(Y0.shape[2]):
-                        if Y0[i, j, k] >= Ypool[i, 0, k]:
+                        if Y0[i, j, k] >= Ypool[i, j, k]:
                             dY0[i, j, k] += dYpool[i, j, k]
             return dXin+dX0, dY0
         return ((X0, Xmask), (output, Ymask)), backprop_pooling_decoder
