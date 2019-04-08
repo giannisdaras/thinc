@@ -44,7 +44,6 @@ class EncoderDecoder(Model):
         # b1: x1, y1
         # b2: x2, y2
         (X1, _), backprop_encode = self.enc.begin_update((X0, Xmask), drop=drop)
-        X1 = X0
         (_, (Y1, _)), backprop_decode = self.dec.begin_update(((X1, Xmask), (Y0, Ymask)), drop=drop)
         word_probs, backprop_output = self.proj.begin_update(Y1, drop=drop)
         # Right-shift the word probabilities
@@ -55,6 +54,7 @@ class EncoderDecoder(Model):
             # Unshift
             d_word_probs[:, :-1] = d_word_probs[:, 1:]
             d_word_probs[:, -1] = 0.
+
             dY1 = backprop_output(d_word_probs, sgd=sgd)
             zeros = Model.ops.xp.zeros(X0.shape, dtype=Model.ops.xp.float32)
             dX1, dY0 = backprop_decode((zeros, dY1), sgd=sgd)
@@ -67,7 +67,7 @@ class EncoderDecoder(Model):
 def EncoderLayer(nH, nM):
     return chain(
         MultiHeadedAttention(nM, nH),
-        with_getitem(0, with_reshape(LayerNorm(Maxout(nM, nM, pieces=3))))
+        with_getitem(0, with_reshape(LayerNorm(Residual(Affine(nM, nM)))))
     )
 
 
@@ -88,7 +88,7 @@ class PoolingDecoder(Model):
         Y_masked = self.ops.xp.copy(Y0)
         Y_masked[Ymask[:, -1, :] == 0] = -math.inf
         Ypool = self.ops.allocate((X0.shape[0], X0.shape[1], self.nM))
-        
+
         # maxing only over previous elements
         for i in range(X0.shape[1]):
             Ypool[:, i, :] = Y_masked[:, :i+1, :].max(axis=1, keepdims=True).squeeze()
@@ -130,7 +130,7 @@ class DecoderLayer(Model):
         self.nM = nM
         self.x_attn = MultiHeadedAttention(nM, nH)
         self.y_attn = MultiHeadedAttention(nM, nH)
-        self.ffd = with_reshape(LayerNorm(Maxout(nM, nM, pieces=3)))
+        self.ffd = with_reshape(LayerNorm(Residual(Affine(nM, nM))))
         self._layers = [self.x_attn, self.y_attn, self.ffd]
 
     def begin_update(self, X_Y, drop=0.0):

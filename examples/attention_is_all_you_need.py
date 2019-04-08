@@ -1,5 +1,8 @@
 ''' A driver file for attention is all you need paper demonstration '''
 from __future__ import unicode_literals
+from collections import defaultdict
+import random
+import numpy
 import plac
 from collections import Counter
 import spacy
@@ -25,8 +28,8 @@ from spacy.lang.de import German
 import pickle
 import sys
 MODEL_SIZE = 300
-MAX_LENGTH = 10
-VOCAB_SIZE = 1000
+MAX_LENGTH = 50
+VOCAB_SIZE = 10000
 
 random.seed(0)
 numpy.random.seed(0)
@@ -59,7 +62,7 @@ def spacy_tokenize(X_tokenizer, Y_tokenizer, X, Y, max_length=50):
     X_out = []
     Y_out = []
     for x, y in zip(X, Y):
-        xdoc = X_tokenizer('<bos> ' + x.strip() + ' <eos>')
+        xdoc = X_tokenizer(x.strip())
         ydoc = Y_tokenizer('<bos> ' + y.strip() + ' <eos>')
         if len(xdoc) < MAX_LENGTH and (len(ydoc) + 2) < MAX_LENGTH:
             X_out.append(xdoc)
@@ -148,9 +151,34 @@ def set_numeric_ids(vocab, docs, vocab_size=0, force_include=("<oov>", "<eos>", 
             assert token.rank != 0, (token.text, token.vocab[token.text].rank)
     return output_docs
 
+def get_dicts(vocab):
+    '''
+        Returns word2indx, indx2word
+    '''
+    word2indx = defaultdict(lambda: vocab['<oov'].rank)
+    indx2word = defaultdict(lambda: '<oov>')
+    for lex in vocab:
+        word2indx[lex.text] = lex.rank
+        indx2word[lex.rank] = lex.text
+    return word2indx, indx2word
+
+
 
 def create_batch():
     def create_batch_forward(Xs_Ys, drop=0.):
+        '''
+        Create a batch object from Xs, Ys pair
+        Args:
+            Xs_Ys:
+                Xs: nB, nL1, nM
+                Ys: nB, nL2, nM
+        Returns Batch object:
+            Xs: nB, nL, nM
+            Ys: nB, nL, nM
+            X_mask: nB, nL, nL
+            y_mask: nB, nL, nL
+        where nL = max(nL1, nL2)
+        '''
         Xs, Ys = Xs_Ys
         nX = model.ops.asarray([x.shape[0] for x in Xs], dtype='i')
         nY = model.ops.asarray([y.shape[0] for y in Ys], dtype='i')
@@ -188,6 +216,19 @@ def pad_sequences(ops, seqs_in, pad_to=None):
     return arr, unpad
 
 
+def get_model_sentence(Yh, indx2word):
+    '''
+        Returns a sentence from the output of the projection layer
+    '''
+    sentences = []
+    argmaxed = Model.ops.xp.argmax(Yh, axis=-1)
+    for sentence in argmaxed:
+        tokens = []
+        for num in sentence:
+            tokens.append(indx2word[num])
+        sentences.append(tokens)
+    return sentences
+
 def get_loss(ops, Yh, Y_docs, Xmask):
     Y_ids = docs2ids(Y_docs)
     guesses = Yh.argmax(axis=-1)
@@ -197,7 +238,7 @@ def get_loss(ops, Yh, Y_docs, Xmask):
     nL = max(Yh.shape[1], max(y.shape[0] for y in Y))
     Y, _ = pad_sequences(ops, Y, pad_to=nL)
     is_accurate = (Yh.argmax(axis=-1) == Y.argmax(axis=-1))
-    d_loss = Yh-Y 
+    d_loss = Yh-Y
     for i, doc in enumerate(Y_docs):
         is_accurate[i, len(doc):] = 0
         d_loss[i, len(doc):] = 0
@@ -243,7 +284,9 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
                                     test_X[-lim:], test_Y[-lim:], MAX_LENGTH)
     train_X = set_numeric_ids(nlp_en.vocab, train_X, vocab_size=VOCAB_SIZE)
     train_Y = set_numeric_ids(nlp_de.vocab, train_Y, vocab_size=VOCAB_SIZE)
-    nTGT = VOCAB_SIZE
+    en_word2indx, en_indx2word = get_dicts(nlp_en.vocab)
+    de_word2indx, de_indx2word = get_dicts(nlp_de.vocab)
+    nTGT = VOCAB_SIZE + 1
 
     with Model.define_operators({">>": chain}):
         embed_cols = [ORTH, SHAPE, PREFIX, SUFFIX]
@@ -277,7 +320,8 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
             total += len(Y)
         dev_accuracies[-1] = correct / total
         n_train = train_totals[-1]
-        print(len(losses), losses[-1], train_accuracies[-1]/n_train, dev_loss[-1], dev_accuracies[-1])
+        print(len(losses), losses[-1], train_accuracies[-1]/n_train,
+            dev_loss[-1], dev_accuracies[-1])
         dev_loss.append(0.)
         losses.append(0.)
         train_accuracies.append(0.)
@@ -288,12 +332,17 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
     with model.begin_training(batch_size=nB, nb_epoch=nE) as (trainer, optimizer):
         trainer.dropout = dropout
         trainer.dropout_decay = 1e-4
+        optimizer.alpha = 0.001
+        optimizer.L2 = 1e-6
+        optimizer.max_grad_norm = 1.0
         trainer.each_epoch.append(track_progress)
         optimizer.alpha = 0.001
         optimizer.L2 = 1e-6
         optimizer.max_grad_norm = 1.0
         for X, Y in trainer.iterate(train_X, train_Y):
             (Yh, X_mask), backprop = model.begin_update((X, Y), drop=dropout)
+            sentence = get_model_sentence(Yh, de_indx2word)
+            # print(sentence)
             dYh, C = get_loss(model.ops, Yh, Y, X_mask)
             backprop(dYh, sgd=optimizer)
             losses[-1] += (dYh**2).sum()

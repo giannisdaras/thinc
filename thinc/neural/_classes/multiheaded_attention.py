@@ -2,7 +2,6 @@ from __future__ import unicode_literals, print_function
 
 from .model import Model
 from .affine import Affine
-from .maxout import Maxout
 from ...api import with_reshape
 
 
@@ -24,7 +23,7 @@ class MultiHeadedAttention(Model):
         self.get_queries = with_reshape(Affine(nM, nM))
         self.get_keys = with_reshape(Affine(nM, nM))
         self.get_values = with_reshape(Affine(nM, nM))
-        self.get_output = with_reshape(Maxout(nM, nM))
+        self.get_output = with_reshape(Affine(nM, nM))
         self._layers = [self.get_queries, self.get_keys, self.get_values, self.get_output]
 
     def begin_update(self, input, drop=0.0):
