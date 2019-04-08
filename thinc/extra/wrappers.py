@@ -99,13 +99,12 @@ class PyTorchWrapper(Model):
                     b_out = []
                     for i, ret in enumerate(i_no_grad):
                         if ret and i_grad[i]:
-                            b_out.append(x_var[i].grad)
+                            b_out.append(torch2xp(x_var[i].grad))
                         elif ret:
-                            b_out.append(x_var[i])
+                            b_out.append(torch2xp(x_var[i]))
                     return tuple(b_out)
                 else:
-                    return x_var[0].grad
-
+                    return torch2xp(x_var[0].grad)
         return y, backward_pytorch
 
 
