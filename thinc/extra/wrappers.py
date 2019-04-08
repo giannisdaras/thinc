@@ -39,39 +39,75 @@ class PyTorchWrapper(Model):
     optimizer.step() after each batch --- see examples/wrap_pytorch.py
     """
 
-    def __init__(self, model, grads=None):
+    def __init__(self, model, conf=None):
         Model.__init__(self)
         self._model = model
         self._optimizer = None
-        self.grads = grads
-
+        self.conf = conf
 
     def begin_update(self, x_data, drop=0.0):
         """Return the output of the wrapped PyTorch model for the given input,
         along with a callback to handle the backward pass.
         """
-        if self.grads is None:
+        if self.conf is None:
             x_var = torch.autograd.Variable(xp2torch(x_data), requires_grad=True)
+            y_var = self._model(x_var)
+            def backward_pytorch(dy_data, sgd=None):
+                dy_var = xp2torch(dy_data)
+                torch.autograd.backward((y_var,), grad_tensors=(dy_var,))
+                if sgd is not None:
+                    if self._optimizer is None:
+                        self._optimizer = self._create_optimizer(sgd)
+                    self._optimizer.step()
+                    self._optimizer.zero_grad()
+                return torch2xp(x_var.grad)
+            y = torch2xp(y_var)
         else:
-            x_var = []
-            for i in range(len(self.grads)):
-                if self.grads[i]:
-                    x_var.append(torch.autograd.Variable(xp2torch(x_data[i]), requires_grad=True))
+            '''
+                self.grads specifies how the pytorch wrapper should behave
+                when multiple inputs come into play.
+                Args:
+                    i_grad: optimizable input parameters (bool)
+                    b_grad: backpropagatable output parameters (bool)
+                    i_no_grad: return input arguments with no grad (bool)
+                    o_xp: output parameters to tensors (bool)
+            '''
+            i_grad, b_grad, i_no_grad, o_xp = self.conf
+            x_var = [x_data[i] if not grad else \
+                    torch.autograd.Variable(xp2torch(x_data[i]), \
+                                            requires_grad=True) for i, grad \
+                                            in enumerate(i_grad)]
+            y_var = self._model(x_var)
+            y = []
+            for i, flag in enumerate(o_xp):
+                if flag:
+                    y.append(torch2xp(y_var[i]))
                 else:
-                    x_var.append(x_data[i])
-        y_var = self._model(x_var)
+                    y.append(y_var[i])
+            y = tuple(y)
+            def backward_pytorch(dy_data, sgd=None):
+                dy_var = xp2torch(dy_data)
+                for i, data in enumerate(y_var):
+                    if b_grad[i]:
+                        torch.autograd.backward((y_var[i],), grad_tensors=(dy_var,))
+                if sgd is not None:
+                    if self._optimizer is None:
+                        self._optimizer = self._create_optimizer(sgd)
+                    self._optimizer.step()
+                    self._optimizer.zero_grad()
+                if i_no_grad is not None:
+                    b_out = []
+                    for i, ret in enumerate(i_no_grad):
+                        if ret and i_grad[i]:
+                            b_out.append(x_var[i].grad)
+                        elif ret:
+                            b_out.append(x_var[i])
+                    return tuple(b_out)
+                else:
+                    return x_var[0].grad
 
-        def backward_pytorch(dy_data, sgd=None):
-            dy_var = xp2torch(dy_data)
-            torch.autograd.backward((y_var,), grad_tensors=(dy_var,))
-            if sgd is not None:
-                if self._optimizer is None:
-                    self._optimizer = self._create_optimizer(sgd)
-                self._optimizer.step()
-                self._optimizer.zero_grad()
-            return torch2xp(x_var.grad)
+        return y, backward_pytorch
 
-        return torch2xp(y_var), backward_pytorch
 
     def _create_optimizer(self, sgd):
         params = self._model.parameters()
