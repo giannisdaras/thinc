@@ -65,6 +65,7 @@ class EncoderDecoder(Model):
             # Unshift
             d_word_probs[:, :-1] = d_word_probs[:, 1:]
             d_word_probs[:, -1] = 0.
+
             dY1 = backprop_output(d_word_probs, sgd=sgd)
             zeros = Model.ops.xp.zeros(X0.shape, dtype=Model.ops.xp.float32)
             dX1, dY0 = backprop_decode((zeros, dY1), sgd=sgd)

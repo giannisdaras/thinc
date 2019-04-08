@@ -2,7 +2,6 @@ from __future__ import unicode_literals, print_function
 
 from .model import Model
 from .affine import Affine
-from .maxout import Maxout
 from ...api import with_reshape
 from thinc.extra.visualizer import visualize_attention
 from thinc.extra.wrappers import xp2torch
