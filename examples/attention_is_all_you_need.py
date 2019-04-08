@@ -363,8 +363,11 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
             losses[-1] += (dYh**2).sum()
             train_accuracies[-1] += C
             train_totals[-1] += sum(len(y) for y in Y)
-
-
+    visualize(model, [train_X[0]], [train_Y[0]])
+    visualize(model, [train_X[1]], [train_Y[1]])
+    visualize(model, [train_X[2]], [train_Y[2]])
+    visualize(model, [train_X[3]], [train_Y[3]])
+    visualize(model, [train_X[4]], [train_Y[4]])
 
 if __name__ == '__main__':
     plac.call(main)
