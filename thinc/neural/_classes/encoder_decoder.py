@@ -7,8 +7,12 @@ from .layernorm import LayerNorm
 from .maxout import Maxout
 from .resnet import Residual
 from .affine import Affine
-from .multiheaded_attention import MultiHeadedAttention
+from .multiheaded_attention import MultiHeadedAttention, \
+    PytorchMultiHeadedAttention
 import math
+import numpy as np
+import torch.nn as nn
+from thinc.extra.wrappers import PyTorchWrapper
 
 class EncoderDecoder(Model):
     def __init__(self, nS=1, nH=6, nM=300, nTGT=10000):
