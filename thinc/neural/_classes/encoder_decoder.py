@@ -31,8 +31,9 @@ class EncoderDecoder(Model):
         self.nM = nM
         self.nTGT = nTGT
         self.enc = clone(EncoderLayer(self.nH, self.nM), 1)
-        # self.dec = clone(DecoderLayer(self.nH, self.nM), 1)
-        self.dec = PoolingDecoder(self.nM)
+        self.dec = clone(DecoderLayer(self.nH, self.nM), 1)
+        # self.dec = PoolingDecoder(self.nM)
+        # self.dec = PyTorchWrapper(PytorchDecoder(self.nH, self.nM), conf=[[]])
         self.proj = with_reshape(Softmax(nO=nTGT, nI=nM))
         self._layers = [self.enc, self.dec, self.proj]
 
@@ -49,8 +50,12 @@ class EncoderDecoder(Model):
             sentY = None
         else:
             (X0, Xmask), (Y0, Ymask), (sentX, sentY) = inputs
+
         (X1, _), backprop_encode = self.enc.begin_update((X0, Xmask, sentX), drop=drop)
         (_, (Y1, _)), backprop_decode = self.dec.begin_update(((X1, Xmask, sentX), (Y0, Ymask, sentY)), drop=drop)
+
+
+
         word_probs, backprop_output = self.proj.begin_update(Y1, drop=drop)
         # Right-shift the word probabilities
         word_probs[:, 1:] = word_probs[:, :-1]
@@ -71,7 +76,9 @@ class EncoderDecoder(Model):
 
 def EncoderLayer(nH, nM):
     return chain(
-        MultiHeadedAttention(nM, nH, layer='Encoder'),
+        PyTorchWrapper(PytorchMultiHeadedAttention(nM, nH, layer='Encoder'),
+            conf=[[True, False, False], [True, False], None, [1, 1]]),
+        # MultiHeadedAttention(nM, nH, layer='Encoder'),
         with_getitem(0, with_reshape(LayerNorm(Affine(nM, nM))))
     )
 
@@ -132,8 +139,10 @@ class DecoderLayer(Model):
         Model.__init__(self)
         self.nH = nH
         self.nM = nM
-        self.x_attn = MultiHeadedAttention(nM, nH, layer='Decoder')
-        self.y_attn = MultiHeadedAttention(nM, nH, layer='Decoder')
+        # self.x_attn = MultiHeadedAttention(nM, nH, layer='Decoder')
+        # self.y_attn = MultiHeadedAttention(nM, nH, layer='Decoder')
+        self.x_attn = PyTorchWrapper(PytorchMultiHeadedAttention(nM, nH, layer='Decoder'), conf=[[True, True, False, False, False], [True, False], [1, 1, 0, 0], [1, 1]])
+        self.y_attn = PyTorchWrapper(PytorchMultiHeadedAttention(nM, nH, layer='Decoder'), conf=[[True, False, False], [True, False], None, [1, 1]])
         self.ffd = with_reshape(LayerNorm(Affine(nM, nM)))
         self._layers = [self.x_attn, self.y_attn, self.ffd]
 
