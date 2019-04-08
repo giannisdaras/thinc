@@ -160,3 +160,18 @@ class DecoderLayer(Model):
             return (dX0 + dXprev, dY0)
 
         return ((X0, Xmask), (output, Ymask)), finish_update
+
+class PytorchDecoder(nn.Module):
+    def __init__(self, nH, nM):
+        self.nH = nH
+        self.nM = nM
+        self.x_attn = PytorchMultiHeadedAttention(nM, nH, layer='Decoder')
+        self.y_attn = PytorchMultiHeadedAttention(nM, nH, layer='Decoder')
+        self.ffd = nn.Linear(nM, nM)
+
+    def forward(self, X_Y):
+        (X0, Xmask, sentX), (Y0, Ymask, sentY) = X_Y
+        (Y1, _) = self.y_attn((Y0, Ymask, sentY))
+        (mixed, _) = self.x_attn((Y1, X0, Xmask, sentY, sentX))
+        output = self.ffd(mixed)
+        return ((X0, Xmask), (output, Ymask))
