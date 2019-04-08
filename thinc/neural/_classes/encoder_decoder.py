@@ -30,8 +30,8 @@ class EncoderDecoder(Model):
         self.nH = nH
         self.nM = nM
         self.nTGT = nTGT
-        self.enc = clone(EncoderLayer(self.nH, self.nM), 1)
-        self.dec = clone(DecoderLayer(self.nH, self.nM), 1)
+        self.enc = clone(EncoderLayer(self.nH, self.nM), self.nS)
+        self.dec = clone(DecoderLayer(self.nH, self.nM), self.nS)
         # self.dec = PoolingDecoder(self.nM)
         # self.dec = PyTorchWrapper(PytorchDecoder(self.nH, self.nM), conf=[[]])
         self.proj = with_reshape(Softmax(nO=nTGT, nI=nM))
