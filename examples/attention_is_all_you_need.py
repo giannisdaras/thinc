@@ -1,11 +1,8 @@
 ''' A driver file for attention is all you need paper demonstration '''
 from __future__ import unicode_literals
 from collections import defaultdict
-<<<<<<< HEAD
-=======
 import random
 import numpy
->>>>>>> matt_code
 import plac
 from collections import Counter
 import spacy
