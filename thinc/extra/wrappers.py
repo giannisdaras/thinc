@@ -39,18 +39,26 @@ class PyTorchWrapper(Model):
     optimizer.step() after each batch --- see examples/wrap_pytorch.py
     """
 
-    def __init__(self, model):
+    def __init__(self, model, grads=None):
         Model.__init__(self)
         self._model = model
         self._optimizer = None
+        self.grads = grads
+
 
     def begin_update(self, x_data, drop=0.0):
         """Return the output of the wrapped PyTorch model for the given input,
         along with a callback to handle the backward pass.
         """
-        x_var = torch.autograd.Variable(xp2torch(x_data), requires_grad=True)
-        # Make prediction
-
+        if self.grads is None:
+            x_var = torch.autograd.Variable(xp2torch(x_data), requires_grad=True)
+        else:
+            x_var = []
+            for i in range(len(self.grads)):
+                if self.grads[i]:
+                    x_var.append(torch.autograd.Variable(xp2torch(x_data[i]), requires_grad=True))
+                else:
+                    x_var.append(x_data[i])
         y_var = self._model(x_var)
 
         def backward_pytorch(dy_data, sgd=None):
