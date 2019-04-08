@@ -1,6 +1,6 @@
 ''' A visualizer module for Thinc '''
 import seaborn
-import plt
+import matplotlib.pyplot as plt
 
 def visualize_attention(x, y, weights):
     '''
