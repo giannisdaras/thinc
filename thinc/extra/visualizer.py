@@ -9,12 +9,12 @@ def visualize_attention(x, y, weights):
             x: sentence
             y: sentence
             weights:
-                (nL, nL) or (nS, nL, nL)
+                (nL, nL) or (nH, nL, nL)
     '''
     def heatmap(x, y, data, ax):
         seaborn.heatmap(data, xticklabels=x, yticklabels=y, vmin=0.0, vmax=1.0,
+                        cbar_kws = dict(use_gridspec=False, location="top"),
                         ax=ax)
-
     fix, axs = plt.subplots(1, weights.shape[0])
     if len(weights.shape) == 2:
         heatmap(x, y, weights, axs[0])
