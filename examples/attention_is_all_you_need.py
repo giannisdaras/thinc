@@ -240,12 +240,35 @@ def get_loss(ops, Yh, Y_docs, Xmask):
         d_loss[i, len(doc):] = 0
     return d_loss, is_accurate.sum()
 
+def visualize(model, X0, Y0):
+    rest_layers = model._layers[1:-1]
+    groundwork = model._layers[0]
+    last_layer = model._layers[-1]
+    for layer in rest_layers:
+        groundwork = chain(groundwork, layer)
+    (X1, Xmask), (Y1, Ymask) = groundwork((X0, Y0))
+    def get_padded_sentence(X, X1):
+        length = X1[0].shape[0]
+        sentX = X[0].text.split(' ')
+        sentX.remove('')
+        if len(sentX) > length:
+            sentX = sentX[:length + 1]
+        if len(sentX) < length:
+            diff = length - len(sentX)
+            pad = ['<pad>' for i in range(diff)]
+            sentX.extend(pad)
+        return sentX
+    sentX = get_padded_sentence(X0, X1)
+    sentY = get_padded_sentence(Y0, X1)
+    last_layer([(X1, Xmask), (Y1, Ymask), (sentX, sentY)])
+
 def FancyEmbed(width, rows, cols=(ORTH, SHAPE, PREFIX, SUFFIX)):
     from thinc.i2v import HashEmbed
     from thinc.v2v import Maxout
     from thinc.api import chain, concatenate
     tables = [HashEmbed(width, rows, column=i) for i in range(len(cols))]
     return chain(concatenate(*tables), Maxout(width, width*len(tables), pieces=3))
+
 
 
 @plac.annotations(
@@ -323,7 +346,6 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
         dev_accuracies.append(0.)
         train_totals.append(0.)
 
-
     with model.begin_training(batch_size=nB, nb_epoch=nE) as (trainer, optimizer):
         trainer.dropout = dropout
         trainer.dropout_decay = 1e-4
@@ -341,6 +363,7 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
             losses[-1] += (dYh**2).sum()
             train_accuracies[-1] += C
             train_totals[-1] += sum(len(y) for y in Y)
+
 
 
 if __name__ == '__main__':
