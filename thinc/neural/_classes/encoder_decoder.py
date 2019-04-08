@@ -26,8 +26,8 @@ class EncoderDecoder(Model):
         self.nH = nH
         self.nM = nM
         self.nTGT = nTGT
-        self.enc = clone(EncoderLayer(self.nH, self.nM), self.nS)
-        #self.dec = clone(DecoderLayer(self.nH, self.nM), self.nS)
+        self.enc = clone(EncoderLayer(self.nH, self.nM), 1)
+        # self.dec = clone(DecoderLayer(self.nH, self.nM), 1)
         self.dec = PoolingDecoder(self.nM)
         self.proj = with_reshape(Softmax(nO=nTGT, nI=nM))
         self._layers = [self.enc, self.dec, self.proj]
@@ -39,13 +39,14 @@ class EncoderDecoder(Model):
         the network. Output is the golden output.
         Input: nB x nL x nM
         '''
-        (X0, Xmask), (Y0, Ymask) = inputs
-        # b0: x0, y0
-        # b1: x1, y1
-        # b2: x2, y2
-        (X1, _), backprop_encode = self.enc.begin_update((X0, Xmask), drop=drop)
-        X1 = X0
-        (_, (Y1, _)), backprop_decode = self.dec.begin_update(((X1, Xmask), (Y0, Ymask)), drop=drop)
+        if len(inputs) == 2:
+            (X0, Xmask), (Y0, Ymask) = inputs
+            sentX = None
+            sentY = None
+        else:
+            (X0, Xmask), (Y0, Ymask), (sentX, sentY) = inputs
+        (X1, _), backprop_encode = self.enc.begin_update((X0, Xmask, sentX), drop=drop)
+        (_, (Y1, _)), backprop_decode = self.dec.begin_update(((X1, Xmask, sentX), (Y0, Ymask, sentY)), drop=drop)
         word_probs, backprop_output = self.proj.begin_update(Y1, drop=drop)
         # Right-shift the word probabilities
         word_probs[:, 1:] = word_probs[:, :-1]
@@ -67,7 +68,7 @@ class EncoderDecoder(Model):
 def EncoderLayer(nH, nM):
     return chain(
         MultiHeadedAttention(nM, nH),
-        with_getitem(0, with_reshape(LayerNorm(Maxout(nM, nM, pieces=3))))
+        with_getitem(0, with_reshape(LayerNorm(Affine(nM, nM))))
     )
 
 
@@ -79,8 +80,7 @@ class PoolingDecoder(Model):
         self._layers = [self.ffd]
 
     def begin_update(self, X_Y, drop=0.):
-        (X0, Xmask), (Y0, Ymask) = X_Y
-
+        (X0, Xmask, _), (Y0, Ymask, _) = X_Y
         X_masked = self.ops.xp.copy(X0)
         X_masked[Xmask[:, 0, :] == 0] = -math.inf
         Xpool = X_masked.max(axis=1, keepdims=True)
@@ -88,7 +88,7 @@ class PoolingDecoder(Model):
         Y_masked = self.ops.xp.copy(Y0)
         Y_masked[Ymask[:, -1, :] == 0] = -math.inf
         Ypool = self.ops.allocate((X0.shape[0], X0.shape[1], self.nM))
-        
+
         # maxing only over previous elements
         for i in range(X0.shape[1]):
             Ypool[:, i, :] = Y_masked[:, :i+1, :].max(axis=1, keepdims=True).squeeze()
@@ -119,7 +119,7 @@ class PoolingDecoder(Model):
                     for k in range(Y0.shape[2]):
                         if Y0[i, j, k] >= Ypool[i, j, k]:
                             dY0[i, j, k] += dYpool[i, j, k]
-            return dXin+dX0, dY0
+            return dXin + dX0, dY0
         return ((X0, Xmask), (output, Ymask)), backprop_pooling_decoder
 
 
@@ -130,20 +130,13 @@ class DecoderLayer(Model):
         self.nM = nM
         self.x_attn = MultiHeadedAttention(nM, nH)
         self.y_attn = MultiHeadedAttention(nM, nH)
-        self.ffd = with_reshape(LayerNorm(Maxout(nM, nM, pieces=3)))
+        self.ffd = with_reshape(LayerNorm(Affine(nM, nM)))
         self._layers = [self.x_attn, self.y_attn, self.ffd]
 
     def begin_update(self, X_Y, drop=0.0):
-        (X0, Xmask), (Y0, Ymask) = X_Y
-        (Y1, _), bp_self_attn = self.y_attn.begin_update((Y0, Ymask))
-        # Arg0 to the multi-head attention is the queries,
-        # From AIYN paper,
-        # "In "encoder-decoder attention" layers, the queries come from
-        # the previous decoder layer,and the memory keys and values come
-        # from the output of the encoder.
-        #
-        # Every query (y) should be free to attend to the whole keys (X)
-        (mixed, _), bp_mix_attn = self.x_attn.begin_update((Y1, X0, Xmask))
+        (X0, Xmask, sentX), (Y0, Ymask, sentY) = X_Y
+        (Y1, _), bp_self_attn = self.y_attn.begin_update((Y0, Ymask, sentY))
+        (mixed, _), bp_mix_attn = self.x_attn.begin_update((Y1, X0, Xmask, sentY, sentX))
         output, bp_output = self.ffd.begin_update(mixed)
 
         def finish_update(dXprev_d_output, sgd=None):
@@ -151,7 +144,6 @@ class DecoderLayer(Model):
             d_mixed = bp_output(d_output, sgd=sgd)
             dY1, dX0 = bp_mix_attn(d_mixed, sgd=sgd)
             dY0 = bp_self_attn(dY1, sgd=sgd)
-            dX0 = dX0 + dXprev
-            return (dX0, dY0)
+            return (dX0 + dXprev, dY0)
 
         return ((X0, Xmask), (output, Ymask)), finish_update

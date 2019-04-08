@@ -4,7 +4,7 @@ from .model import Model
 from .affine import Affine
 from .maxout import Maxout
 from ...api import with_reshape
-
+from thinc.extra.visualizer import visualize_attention
 
 class MultiHeadedAttention(Model):
     ''' This class implements multiheaded attention. It can be used for self
@@ -24,18 +24,19 @@ class MultiHeadedAttention(Model):
         self.get_queries = with_reshape(Affine(nM, nM))
         self.get_keys = with_reshape(Affine(nM, nM))
         self.get_values = with_reshape(Affine(nM, nM))
-        self.get_output = with_reshape(Maxout(nM, nM))
+        self.get_output = with_reshape(Affine(nM, nM))
         self._layers = [self.get_queries, self.get_keys, self.get_values, self.get_output]
 
     def begin_update(self, input, drop=0.0):
         # Queries come from input[0], keys and values from input[1]
-        if len(input) == 2:
-            x0, mask = input
+        if len(input) == 3:
+            x0, mask, sentX = input
+            sentY = sentX
             y0 = x0
             self_attention = True
         else:
             self_attention = False
-            x0, y0, mask = input
+            x0, y0, mask, sentX, sentY = input
         ''' Shapes '''
         # x0: nB, nL, nM
         # q0: nB, nL, nM
@@ -55,7 +56,7 @@ class MultiHeadedAttention(Model):
         v0, get_dy0_2 = self.get_values.begin_update(y0)
         v1 = v0.reshape(nB, -1, self.nH, self.nD)
 
-        x1, get_dq1_dk1_dv1 = self.attn(q1, k1, v1, mask=mask)
+        x1, get_dq1_dk1_dv1 = self.attn(q1, k1, v1, mask=mask, sentX=sentX, sentY=sentY)
 
         x2 = x1.reshape(x1.shape[0], x1.shape[1], x1.shape[2]*x1.shape[3])
         x3, get_dx2 = self.get_output.begin_update(x2)
@@ -75,7 +76,7 @@ class MultiHeadedAttention(Model):
                 return (dx0, dy0)
         return (x3, mask), finish_update
 
-    def attn(self, Q, K, V, mask=None):
+    def attn(self, Q, K, V, mask=None, sentX=None, sentY=None):
         '''
         Compute attention on (query, key, value) triplets.
         The similarity of the (Q, K) pairs are used to
@@ -87,6 +88,8 @@ class MultiHeadedAttention(Model):
         S0, bp_scaled_dp = self._scaled_dot_prod(Q, K)
         S1, bp_mask = self._mask(S0, mask)
         S2, bp_softmax = self._softmax(S1)
+        if sentX is not None and sentY is not None:
+            visualize_attention(sentX, sentY, S2[0])
         S3, bp_apply_attn = self._apply_attn(S2, V)
 
         def backprop_attn(dS3):
