@@ -18,7 +18,6 @@ def visualize_attention(x, y, weights, layer='Encoder', self_attn=True):
     fig, axs = plt.subplots(1, num)
     attn_type = 'self attention' if self_attn else 'outer attention'
     fig.suptitle('{} {} for all the heads'.format(layer, attn_type))
-    import pdb; pdb.set_trace()
     if len(weights.shape) == 3:
         for i in range(num):
             heatmap(x, y, weights[i], axs[i])
