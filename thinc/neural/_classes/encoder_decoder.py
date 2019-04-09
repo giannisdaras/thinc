@@ -30,8 +30,8 @@ class EncoderDecoder(Model):
         self.nH = nH
         self.nM = nM
         self.nTGT = nTGT
-        self.enc = clone(EncoderLayer(self.nH, self.nM), self.nS)
-        self.dec = clone(DecoderLayer(self.nH, self.nM), self.nS)
+        self.enc = clone(EncoderLayer(self.nH, self.nM), nS)
+        self.dec = clone(DecoderLayer(self.nH, self.nM), nS)
         # self.dec = PoolingDecoder(self.nM)
         # self.dec = PyTorchWrapper(PytorchDecoder(self.nH, self.nM), conf=[[]])
         self.proj = with_reshape(Softmax(nO=nTGT, nI=nM))
@@ -51,8 +51,8 @@ class EncoderDecoder(Model):
         else:
             (X0, Xmask), (Y0, Ymask), (sentX, sentY) = inputs
 
-        (X1, _), backprop_encode = self.enc.begin_update((X0, Xmask, sentX), drop=drop)
-        (_, (Y1, _)), backprop_decode = self.dec.begin_update(((X1, Xmask, sentX), (Y0, Ymask, sentY)), drop=drop)
+        (X1, _, _), backprop_encode = self.enc.begin_update((X0, Xmask, sentX), drop=drop)
+        (_, (Y1, _, _)), backprop_decode = self.dec.begin_update(((X1, Xmask, sentX), (Y0, Ymask, sentY)), drop=drop)
 
 
 
@@ -75,13 +75,58 @@ class EncoderDecoder(Model):
         return (word_probs, Xmask), finish_update
 
 
-def EncoderLayer(nH, nM):
+def OneEncoderLayer(nH, nM):
     return chain(
-        PyTorchWrapper(PytorchMultiHeadedAttention(nM, nH, layer='Encoder'),
-            conf=[[True, False, False], [True, False], None, [1, 1]]),
-        # MultiHeadedAttention(nM, nH, layer='Encoder'),
+        MultiHeadedAttention(nM, nH, layer='Encoder'),
         with_getitem(0, with_reshape(LayerNorm(Affine(nM, nM))))
     )
+
+class EncoderLayer(Model):
+    def __init__(self, nH, nM):
+        Model.__init__(self)
+        self.nH = nH
+        self.nM = nM
+        self.attn = PyTorchWrapper(PytorchMultiHeadedAttention(nM, nH, layer='Encoder'),
+                    conf=[[True, False, False], [True, False], None, [1, 1]])
+        self.ffd = with_reshape(LayerNorm(Affine(nM, nM)))
+
+    def begin_update(self, input, drop=0.0):
+        X0, mask, sentX = input
+        (X1, _), b_attn = self.attn.begin_update(input)
+        X2, b_ffd = self.ffd.begin_update(X1)
+        def finish_update(dX2, sgd=None):
+            dX1 = b_ffd(dX2, sgd=sgd)
+            dX0 = b_attn(dX1, sgd=sgd)
+            return dX0
+        return (X2, mask, sentX), finish_update
+
+
+class DecoderLayer(Model):
+    def __init__(self, nH, nM):
+        Model.__init__(self)
+        self.nH = nH
+        self.nM = nM
+        # self.x_attn = MultiHeadedAttention(nM, nH, layer='Decoder')
+        # self.y_attn = MultiHeadedAttention(nM, nH, layer='Decoder')
+        self.x_attn = PyTorchWrapper(PytorchMultiHeadedAttention(nM, nH, layer='Decoder'), conf=[[True, True, False, False, False], [True, False], [1, 1, 0, 0], [1, 1]])
+        self.y_attn = PyTorchWrapper(PytorchMultiHeadedAttention(nM, nH, layer='Decoder'), conf=[[True, False, False], [True, False], None, [1, 1]])
+        self.ffd = with_reshape(LayerNorm(Affine(nM, nM)))
+        self._layers = [self.x_attn, self.y_attn, self.ffd]
+
+    def begin_update(self, X_Y, drop=0.0):
+        (X0, Xmask, sentX), (Y0, Ymask, sentY) = X_Y
+        (Y1, _), bp_self_attn = self.y_attn.begin_update((Y0, Ymask, sentY))
+        (mixed, _), bp_mix_attn = self.x_attn.begin_update((Y1, X0, Xmask, sentY, sentX))
+        output, bp_output = self.ffd.begin_update(mixed)
+
+        def finish_update(dXprev_d_output, sgd=None):
+            dXprev, d_output = dXprev_d_output
+            d_mixed = bp_output(d_output, sgd=sgd)
+            dY1, dX0 = bp_mix_attn(d_mixed, sgd=sgd)
+            dY0 = bp_self_attn(dY1, sgd=sgd)
+            return (dX0 + dXprev, dY0)
+
+        return ((X0, Xmask, sentX), (output, Ymask, sentY)), finish_update
 
 
 class PoolingDecoder(Model):
@@ -134,33 +179,6 @@ class PoolingDecoder(Model):
             return dXin + dX0, dY0
         return ((X0, Xmask), (output, Ymask)), backprop_pooling_decoder
 
-
-class DecoderLayer(Model):
-    def __init__(self, nH, nM):
-        Model.__init__(self)
-        self.nH = nH
-        self.nM = nM
-        # self.x_attn = MultiHeadedAttention(nM, nH, layer='Decoder')
-        # self.y_attn = MultiHeadedAttention(nM, nH, layer='Decoder')
-        self.x_attn = PyTorchWrapper(PytorchMultiHeadedAttention(nM, nH, layer='Decoder'), conf=[[True, True, False, False, False], [True, False], [1, 1, 0, 0], [1, 1]])
-        self.y_attn = PyTorchWrapper(PytorchMultiHeadedAttention(nM, nH, layer='Decoder'), conf=[[True, False, False], [True, False], None, [1, 1]])
-        self.ffd = with_reshape(LayerNorm(Affine(nM, nM)))
-        self._layers = [self.x_attn, self.y_attn, self.ffd]
-
-    def begin_update(self, X_Y, drop=0.0):
-        (X0, Xmask, sentX), (Y0, Ymask, sentY) = X_Y
-        (Y1, _), bp_self_attn = self.y_attn.begin_update((Y0, Ymask, sentY))
-        (mixed, _), bp_mix_attn = self.x_attn.begin_update((Y1, X0, Xmask, sentY, sentX))
-        output, bp_output = self.ffd.begin_update(mixed)
-
-        def finish_update(dXprev_d_output, sgd=None):
-            dXprev, d_output = dXprev_d_output
-            d_mixed = bp_output(d_output, sgd=sgd)
-            dY1, dX0 = bp_mix_attn(d_mixed, sgd=sgd)
-            dY0 = bp_self_attn(dY1, sgd=sgd)
-            return (dX0 + dXprev, dY0)
-
-        return ((X0, Xmask), (output, Ymask)), finish_update
 
 class PytorchDecoder(nn.Module):
     def __init__(self, nH, nM):
