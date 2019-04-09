@@ -27,9 +27,6 @@ from spacy.lang.en import English
 from spacy.lang.de import German
 import pickle
 import sys
-MODEL_SIZE = 300
-MAX_LENGTH = 50
-VOCAB_SIZE = 10000
 
 random.seed(0)
 numpy.random.seed(0)
@@ -58,20 +55,20 @@ class Batch:
             self.y_mask[i, length:, :length] = 1
 
 
-def spacy_tokenize(X_tokenizer, Y_tokenizer, X, Y, max_length=50):
+def spacy_tokenize(X_tokenizer, Y_tokenizer, X, Y, mL=50):
     X_out = []
     Y_out = []
     for x, y in zip(X, Y):
         xdoc = X_tokenizer(x.strip())
         ydoc = Y_tokenizer('<bos> ' + y.strip() + ' <eos>')
-        if len(xdoc) < MAX_LENGTH and (len(ydoc) + 2) < MAX_LENGTH:
+        if len(xdoc) < mL and (len(ydoc) + 2) < mL:
             X_out.append(xdoc)
             Y_out.append(ydoc)
     return X_out, Y_out
 
 
-def PositionEncode(max_length, model_size):
-    positions = Model.ops.position_encode(max_length, model_size)
+def PositionEncode(mL, nM):
+    positions = Model.ops.position_encode(mL, nM)
     def position_encode_forward(Xs, drop=0.):
         output = []
         for x in Xs:
@@ -119,7 +116,7 @@ def apply_layers(*layers):
     return wrap(apply_layers_forward, *layers)
 
 
-def set_numeric_ids(vocab, docs, vocab_size=0, force_include=("<oov>", "<eos>", "<bos>")):
+def set_numeric_ids(vocab, docs, nTGT=0, force_include=("<oov>", "<eos>", "<bos>")):
     """Count word frequencies and use them to set the lex.rank attribute."""
     freqs = Counter()
     oov_rank = 1
@@ -142,7 +139,7 @@ def set_numeric_ids(vocab, docs, vocab_size=0, force_include=("<oov>", "<eos>", 
         if lex.text not in force_include:
             lex.rank = rank
             rank += 1
-        if vocab_size != 0 and rank >= vocab_size:
+        if nTGT != 0 and rank >= nTGT:
             break
     output_docs = []
     for doc in docs:
@@ -243,7 +240,6 @@ def get_model_sentence(Yh, indx2word):
 def get_loss(ops, Yh, Y_docs, Xmask):
     Y_ids = docs2ids(Y_docs)
     guesses = Yh.argmax(axis=-1)
-    #print("Tru", Y_ids[0][:5], "Sys", guesses[0, :5])
     nC = Yh.shape[-1]
     Y = [to_categorical(y, nb_classes=nC) for y in Y_ids]
     nL = max(Yh.shape[1], max(y.shape[0] for y in Y))
@@ -293,9 +289,15 @@ def FancyEmbed(width, rows, cols=(ORTH, SHAPE, PREFIX, SUFFIX)):
     nB=('Batch size for the training', "option", "nB", int),
     nE=('Number of epochs for the training', "option", "nE", int),
     use_gpu=("Which GPU to use. -1 for CPU", "option", "g", int),
-    lim=("Number of sentences to load from dataset", "option", "l", int)
+    lim=("Number of sentences to load from dataset", "option", "l", int),
+    nM=("Embeddings size", "option", "nM", int),
+    mL=("Max length sentence in dataset", "option", "mL", int),
+    nTGT=("Vocabulary size", "option", "nTGT", int)
+
+
 )
-def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
+def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000,
+        nM=300, mL=10, nTGT=1000):
     if use_gpu != -1:
         # TODO: Make specific to different devices, e.g. 1 vs 0
         spacy.require_gpu()
@@ -311,26 +313,26 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
         nlp_en.tokenizer.add_special_case(control_token, [{ORTH: control_token}])
         nlp_de.tokenizer.add_special_case(control_token, [{ORTH: control_token}])
     train_X, train_Y = spacy_tokenize(nlp_en.tokenizer, nlp_de.tokenizer,
-                                      train_X[-lim:], train_Y[-lim:], MAX_LENGTH)
+                                      train_X[-lim:], train_Y[-lim:], mL)
     dev_X, dev_Y = spacy_tokenize(nlp_en.tokenizer, nlp_de.tokenizer,
-                                  dev_X[-lim:], dev_Y[-lim:], MAX_LENGTH)
+                                  dev_X[-lim:], dev_Y[-lim:], mL)
     test_X, test_Y = spacy_tokenize(nlp_en.tokenizer, nlp_de.tokenizer,
-                                    test_X[-lim:], test_Y[-lim:], MAX_LENGTH)
-    train_X = set_numeric_ids(nlp_en.vocab, train_X, vocab_size=VOCAB_SIZE)
-    train_Y = set_numeric_ids(nlp_de.vocab, train_Y, vocab_size=VOCAB_SIZE)
+                                    test_X[-lim:], test_Y[-lim:], mL)
+    train_X = set_numeric_ids(nlp_en.vocab, train_X, nTGT=nTGT)
+    train_Y = set_numeric_ids(nlp_de.vocab, train_Y, nTGT=nTGT)
     en_word2indx, en_indx2word = get_dicts(nlp_en.vocab)
     de_word2indx, de_indx2word = get_dicts(nlp_de.vocab)
-    nTGT = VOCAB_SIZE + 1
+    nTGT += 1
 
     with Model.define_operators({">>": chain}):
         embed_cols = [ORTH, SHAPE, PREFIX, SUFFIX]
         extractor = FeatureExtracter(attrs=embed_cols)
-        position_encode = PositionEncode(MAX_LENGTH, MODEL_SIZE)
+        position_encode = PositionEncode(mL, nM)
         model = (
             apply_layers(extractor, extractor)
             >> apply_layers(
-                with_flatten(FancyEmbed(MODEL_SIZE, 5000, cols=embed_cols)),
-                with_flatten(FancyEmbed(MODEL_SIZE, 5000, cols=embed_cols)),
+                with_flatten(FancyEmbed(nM, 5000, cols=embed_cols)),
+                with_flatten(FancyEmbed(nM, 5000, cols=embed_cols)),
             )
             >> apply_layers(Residual(position_encode), Residual(position_encode))
             >> create_batch()
@@ -382,6 +384,8 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000):
             losses[-1] += (dYh**2).sum()
             train_accuracies[-1] += C
             train_totals[-1] += sum(len(y) for y in Y)
+
+
     visualize(model, [train_X[0]], [train_Y[0]])
     visualize(model, [train_X[1]], [train_Y[1]])
     visualize(model, [train_X[2]], [train_Y[2]])
