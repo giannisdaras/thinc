@@ -312,14 +312,21 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000,
     for control_token in ("<eos>", "<bos>", "<pad>"):
         nlp_en.tokenizer.add_special_case(control_token, [{ORTH: control_token}])
         nlp_de.tokenizer.add_special_case(control_token, [{ORTH: control_token}])
+    train_lim = min(lim, len(train_X))
+    dev_lim = min(lim, len(dev_X))
+    test_lim = min(lim, len(test_X))
     train_X, train_Y = spacy_tokenize(nlp_en.tokenizer, nlp_de.tokenizer,
-                                      train_X[-lim:], train_Y[-lim:], mL)
+                                      train_X[-train_lim:], train_Y[-train_lim:], mL)
     dev_X, dev_Y = spacy_tokenize(nlp_en.tokenizer, nlp_de.tokenizer,
-                                  dev_X[-lim:], dev_Y[-lim:], mL)
+                                  dev_X[-dev_lim:], dev_Y[-dev_lim:], mL)
     test_X, test_Y = spacy_tokenize(nlp_en.tokenizer, nlp_de.tokenizer,
-                                    test_X[-lim:], test_Y[-lim:], mL)
+                                    test_X[-test_lim:], test_Y[-test_lim:], mL)
     train_X = set_numeric_ids(nlp_en.vocab, train_X, nTGT=nTGT)
     train_Y = set_numeric_ids(nlp_de.vocab, train_Y, nTGT=nTGT)
+    dev_X = set_numeric_ids(nlp_en.vocab, dev_X, nTGT=nTGT)
+    dev_Y = set_numeric_ids(nlp_de.vocab, dev_Y, nTGT=nTGT)
+    test_X = set_numeric_ids(nlp_en.vocab, test_X, nTGT=nTGT)
+    test_Y = set_numeric_ids(nlp_de.vocab, test_Y, nTGT=nTGT)
     en_word2indx, en_indx2word = get_dicts(nlp_en.vocab)
     de_word2indx, de_indx2word = get_dicts(nlp_de.vocab)
     nTGT += 1
