@@ -35,14 +35,8 @@ class EncoderDecoder(Model):
         self.nM = nM
         self.nTGT = nTGT
         self.enc = clone(EncoderLayer(nM=nM, nH=nH), nS)
-        self.dec = clone(DecoderLayer(nM=nM, nH=nH), nS)
         self.norm = PyTorchWrapper(PytorchLayerNorm(nM=300))
-
-        # dec_i_grad = [1, 1, 0, 0]
-        # dec_o_xp = None
-        # dec_b_map = [[0], [1]]
-        # dec_ret_x = [0, 1]
-        # self.dec = PyTorchWrapper(Decoder(nM=nM, nH=nH, nS=nS), conf=[dec_i_grad, dec_o_xp, dec_b_map, dec_ret_x])
+        self.dec = clone(DecoderLayer(nM=nM, nH=nH), nS)
         self.proj = with_reshape(Softmax(nO=nTGT, nI=nM))
         self._layers = [self.enc, self.dec, self.proj]
 
@@ -60,7 +54,6 @@ class EncoderDecoder(Model):
         X2, b_X2 = self.norm.begin_update(X1)
         (Y1, _, _, _), backprop_decode = self.dec.begin_update((Y0, X2, Xmask, Ymask))
         Y2, b_Y2 = self.norm.begin_update(Y1)
-        # Y1, backprop_decode = self.dec.begin_update((Y0, X1, Xmask, Ymask))
         word_probs, backprop_output = self.proj.begin_update(Y2, drop=drop)
 
         def finish_update(d_word_probs, sgd=None):
