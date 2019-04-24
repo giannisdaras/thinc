@@ -4,7 +4,7 @@ from __future__ import unicode_literals
 import contextlib
 from ..compat import BytesIO
 from ..neural._classes.model import Model
-
+import copy
 try:
     import cupy
 except ImportError:
@@ -66,45 +66,76 @@ class PyTorchWrapper(Model):
             '''
                 self.grads specifies how the pytorch wrapper should behave
                 when multiple inputs come into play.
+                Let's say we have n inputs and m outputs
                 Args:
-                    i_grad: optimizable input parameters (bool)
-                    b_grad: backpropagatable output parameters (bool)
-                    i_no_grad: return input arguments with no grad (bool)
-                    o_xp: output parameters to tensors (bool)
+                    i_grad: (bool iterable)
+                        controls which of n inputs require grad
+                    o_xp: int or None
+                        determines the number of outputs
+                    b_map: list or None
+                        maps each dYi with one or more Yj.
+                        Leave none if there is only one gradient
+                    ret_x: list of int
+                        a list of indexes of the inputs that will be returned
+                        in the backpropagation
             '''
-            i_grad, b_grad, i_no_grad, o_xp = self.conf
-            x_var = [x_data[i] if not grad else \
-                    torch.autograd.Variable(xp2torch(x_data[i]), \
-                                            requires_grad=True) for i, grad \
-                                            in enumerate(i_grad)]
+            i_grad, o_xp, b_map, ret_x = self.conf
+
+            ''' Input numpy arrays to tensors with grad or no grad '''
+            x_var = [
+                xp2torch(x_data[i]) if not grad else
+                torch.autograd.Variable(xp2torch(x_data[i]), requires_grad=True)
+                for i, grad in enumerate(i_grad)]
+
             y_var = self._model(x_var)
-            y = []
-            for i, flag in enumerate(o_xp):
-                if flag:
+
+            ''' Tensors to numpy arrays '''
+            if o_xp is not None:
+                y = []
+                for i in range(o_xp):
                     y.append(torch2xp(y_var[i]))
-                else:
-                    y.append(y_var[i])
-            y = tuple(y)
+                y = tuple(y)
+            else:
+                y = torch2xp(y_var)
             def backward_pytorch(dy_data, sgd=None):
-                dy_var = xp2torch(dy_data)
-                for i, data in enumerate(y_var):
-                    if b_grad[i]:
-                        torch.autograd.backward((y_var[i],), grad_tensors=(dy_var,))
+                if b_map is None:
+                    # one gradient, one output
+                    dy_var = xp2torch(dy_data)
+                    torch.autograd.backward((y_var,), grad_tensors=(dy_var,))
+                else:
+                    if len(b_map) == 1:
+                        # this corresponds to one gradient and multiple outputs
+                        dy_var = xp2torch(dy_data)
+                        grad_list = b_map[0]
+                        for y_indx in grad_list:
+                            torch.autograd.backward((y_var[y_indx],), grad_tensors=(dy_var,), retain_graph=True)
+                    else:
+                        # this corresponds to multiple gradients
+                        vars = []
+                        for grad_indx, grad_list in enumerate(b_map):
+                            dy_var = xp2torch(dy_data[grad_indx])
+                            for y_indx in grad_list:
+                                if o_xp is not None:
+                                    torch.autograd.backward((y_var[y_indx],), grad_tensors=(dy_var,))
+                                else:
+                                    torch.autograd.backward((y_var,), grad_tensors=(dy_var,), retain_graph=True)
                 if sgd is not None:
                     if self._optimizer is None:
                         self._optimizer = self._create_optimizer(sgd)
                     self._optimizer.step()
                     self._optimizer.zero_grad()
-                if i_no_grad is not None:
-                    b_out = []
-                    for i, ret in enumerate(i_no_grad):
-                        if ret and i_grad[i]:
-                            b_out.append(torch2xp(x_var[i].grad))
-                        elif ret:
-                            b_out.append(torch2xp(x_var[i]))
-                    return tuple(b_out)
+                b_out = []
+                for indx in ret_x:
+                    if i_grad[indx]:
+                        b_out.append(torch2xp(x_var[indx].grad))
+                    else:
+                        b_out.append(torch2xp(x_var[indx]))
+                if len(b_out) == 0:
+                    return None
+                elif len(b_out) == 1:
+                    return b_out[0]
                 else:
-                    return torch2xp(x_var[0].grad)
+                    return b_out
         return y, backward_pytorch
 
 
