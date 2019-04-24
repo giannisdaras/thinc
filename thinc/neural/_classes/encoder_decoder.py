@@ -18,10 +18,6 @@ from thinc.extra.wrappers import PyTorchWrapper
 import torch.nn.functional as F
 
 
-def clones(module, N):
-    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
-
-
 class EncoderDecoder(Model):
     def __init__(self, nS=1, nH=6, nM=300, nTGT=10000):
         '''
@@ -97,6 +93,7 @@ class EncoderLayer(Model):
         self.ffd = PositionwiseFeedForward(nM, nM)
         self.norm = PyTorchWrapper(PytorchLayerNorm())
         self.nM = nM
+        self.layers_ = [self.attn, self.ffd, self.norm]
 
     def begin_update(self, input, drop=0.0):
         X0, mask = input
@@ -146,6 +143,7 @@ class DecoderLayer(Model):
         conf = [i_grad, o_xp, b_map, ret_x]
         self.x_attn = PyTorchWrapper(PytorchMultiHeadedAttention(nM=nM, nH=nH), conf=conf)
         self.ffd = PositionwiseFeedForward(nM, nM)
+        self.layers_ = [self.norm, self.y_attn, self.x_attn, self.ffd]
 
     def begin_update(self, input, drop=0.0):
         Y0, X0, X_mask, Y_mask = input
