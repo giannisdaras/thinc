@@ -239,6 +239,7 @@ def get_model_sentence(Yh, indx2word):
         sentences.append(tokens)
     return sentences
 
+
 def get_loss(ops, Yh, Y_docs, Xmask):
     Y_ids = docs2ids(Y_docs)
     guesses = Yh.argmax(axis=-1)
@@ -247,11 +248,13 @@ def get_loss(ops, Yh, Y_docs, Xmask):
     nL = max(Yh.shape[1], max(y.shape[0] for y in Y))
     Y, _ = pad_sequences(ops, Y, pad_to=nL)
     is_accurate = (Yh.argmax(axis=-1) == Y.argmax(axis=-1))
+    is_not_accurate = (Yh.argmax(axis=-1) != Y.argmax(axis=-1))
+    total = is_accurate.sum() + is_not_accurate.sum()
     d_loss = Yh-Y
     for i, doc in enumerate(Y_docs):
         is_accurate[i, len(doc):] = 0
         d_loss[i, len(doc):] = 0
-    return d_loss, is_accurate.sum()
+    return d_loss, is_accurate.sum(), total
 
 def visualize(model, X0, Y0):
     rest_layers = model._layers[1:-1]
@@ -357,10 +360,10 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000,
         for batch in minibatch(zip(dev_X, dev_Y), size=1024):
             X, Y = zip(*batch)
             Yh, Y_mask = model((X, Y))
-            L, C = get_loss(model.ops, Yh, Y, Y_mask)
+            L, C, t = get_loss(model.ops, Yh, Y, Y_mask)
             correct += C
             dev_loss[-1] += (L**2).sum()
-            total += len(Y)
+            total += t
         dev_accuracies[-1] = correct / total
         n_train = train_totals[-1]
         print(len(losses), losses[-1], train_accuracies[-1]/n_train,
@@ -382,20 +385,12 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000,
         optimizer.L2 = 1e-6
         optimizer.max_grad_norm = 1.0
         for X, Y in trainer.iterate(train_X, train_Y):
-            # TODO: fix this
-            # (Yh, X_mask), backprop = model.begin_update((X, Y), drop=dropout)
             (Yh, X_mask), backprop = model.begin_update((X, Y))
-            dYh, C = get_loss(model.ops, Yh, Y, X_mask)
+            dYh, C, total = get_loss(model.ops, Yh, Y, X_mask)
             backprop(dYh, sgd=optimizer)
             losses[-1] += (dYh**2).sum()
             train_accuracies[-1] += C
-            train_totals[-1] += sum(len(y) for y in Y)
-
-    # visualize(model, [train_X[0]], [train_Y[0]])
-    # visualize(model, [train_X[1]], [train_Y[1]])
-    # visualize(model, [train_X[2]], [train_Y[2]])
-    # visualize(model, [train_X[3]], [train_Y[3]])
-    # visualize(model, [train_X[4]], [train_Y[4]])
+            train_totals[-1] += total
 
 if __name__ == '__main__':
     plac.call(main)
