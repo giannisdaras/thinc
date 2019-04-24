@@ -22,7 +22,7 @@ from thinc.v2v import Model
 from timeit import default_timer as timer
 import numpy.random
 import random
-
+from thinc.extra.wrappers import PyTorchWrapper
 from spacy.lang.en import English
 from spacy.lang.de import German
 import pickle
@@ -45,14 +45,14 @@ class Batch:
         self.y = y
         self.nB = X.shape[0]
         self.nL = X.shape[1]
-        self.X_mask = Model.ops.allocate((self.nB, self.nL, self.nL), dtype='bool')
-        self.y_mask = Model.ops.allocate((self.nB, self.nL, self.nL), dtype='bool')
+        self.X_mask = Model.ops.allocate((self.nB, self.nL, self.nL))
+        self.y_mask = Model.ops.allocate((self.nB, self.nL, self.nL))
         for i, length in enumerate(nX):
-            self.X_mask[i, :, :length] = 1
+            self.X_mask[i, :, :length] = 1.0
         for i, length in enumerate(nY):
             for j in range(length):
-                self.y_mask[i, j, :j+1] = 1
-            self.y_mask[i, length:, :length] = 1
+                self.y_mask[i, j, :j+1] = 1.0
+            self.y_mask[i, length:, :length] = 1.0
 
 
 def spacy_tokenize(X_tokenizer, Y_tokenizer, X, Y, mL=50):
