@@ -323,12 +323,10 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000,
                                   dev_X[-dev_lim:], dev_Y[-dev_lim:], mL)
     test_X, test_Y = spacy_tokenize(nlp_en.tokenizer, nlp_de.tokenizer,
                                     test_X[-test_lim:], test_Y[-test_lim:], mL)
-    train_X = set_numeric_ids(nlp_en.vocab, train_X, nTGT=nTGT)
-    train_Y = set_numeric_ids(nlp_de.vocab, train_Y, nTGT=nTGT)
-    dev_X = set_numeric_ids(nlp_en.vocab, dev_X, nTGT=nTGT)
-    dev_Y = set_numeric_ids(nlp_de.vocab, dev_Y, nTGT=nTGT)
-    test_X = set_numeric_ids(nlp_en.vocab, test_X, nTGT=nTGT)
-    test_Y = set_numeric_ids(nlp_de.vocab, test_Y, nTGT=nTGT)
+    all_X_docs = train_X + dev_X + test_X
+    all_y_docs = train_Y + dev_Y + test_Y
+    train_X = set_numeric_ids(nlp_en.vocab, all_X_docs, nTGT=nTGT)
+    train_Y = set_numeric_ids(nlp_de.vocab, all_y_docs, nTGT=nTGT)
     en_word2indx, en_indx2word = get_dicts(nlp_en.vocab)
     de_word2indx, de_indx2word = get_dicts(nlp_de.vocab)
     nTGT += 1
