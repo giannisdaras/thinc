@@ -318,11 +318,11 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000,
     dev_lim = min(lim, len(dev_X))
     test_lim = min(lim, len(test_X))
     train_X, train_Y = spacy_tokenize(nlp_en.tokenizer, nlp_de.tokenizer,
-                                      train_X[-train_lim:], train_Y[-train_lim:], mL)
+                                      train_X[:train_lim], train_Y[:train_lim], mL)
     dev_X, dev_Y = spacy_tokenize(nlp_en.tokenizer, nlp_de.tokenizer,
-                                  dev_X[-dev_lim:], dev_Y[-dev_lim:], mL)
+                                  dev_X[:dev_lim], dev_Y[:dev_lim], mL)
     test_X, test_Y = spacy_tokenize(nlp_en.tokenizer, nlp_de.tokenizer,
-                                    test_X[-test_lim:], test_Y[-test_lim:], mL)
+                                    test_X[:test_lim], test_Y[:test_lim], mL)
     all_X_docs = train_X + dev_X + test_X
     all_y_docs = train_Y + dev_Y + test_Y
     train_X = set_numeric_ids(nlp_en.vocab, all_X_docs, nTGT=nTGT)
@@ -382,22 +382,20 @@ def main(nH=6, dropout=0.1, nS=6, nB=15, nE=20, use_gpu=-1, lim=2000,
         optimizer.L2 = 1e-6
         optimizer.max_grad_norm = 1.0
         for X, Y in trainer.iterate(train_X, train_Y):
-            (Yh, X_mask), backprop = model.begin_update((X, Y), drop=dropout)
-            sentence = get_model_sentence(Yh, de_indx2word)
-            # print("Real sentence: {}".format(Y[0].text))
-            # print("Model sentence: {}".format(' '.join(sentence[0])))
+            # TODO: fix this
+            # (Yh, X_mask), backprop = model.begin_update((X, Y), drop=dropout)
+            (Yh, X_mask), backprop = model.begin_update((X, Y))
             dYh, C = get_loss(model.ops, Yh, Y, X_mask)
             backprop(dYh, sgd=optimizer)
             losses[-1] += (dYh**2).sum()
             train_accuracies[-1] += C
             train_totals[-1] += sum(len(y) for y in Y)
 
-
-    visualize(model, [train_X[0]], [train_Y[0]])
-    visualize(model, [train_X[1]], [train_Y[1]])
-    visualize(model, [train_X[2]], [train_Y[2]])
-    visualize(model, [train_X[3]], [train_Y[3]])
-    visualize(model, [train_X[4]], [train_Y[4]])
+    # visualize(model, [train_X[0]], [train_Y[0]])
+    # visualize(model, [train_X[1]], [train_Y[1]])
+    # visualize(model, [train_X[2]], [train_Y[2]])
+    # visualize(model, [train_X[3]], [train_Y[3]])
+    # visualize(model, [train_X[4]], [train_Y[4]])
 
 if __name__ == '__main__':
     plac.call(main)
