@@ -149,25 +149,6 @@ class Decoder(nn.Module):
         return self.norm(x)
 
 
-class PytorchDecoderLayer(nn.Module):
-    "Decoder is made of self-attn, src-attn, and feed forward (defined below)"
-    def __init__(self, nM=300, nH=6, dropout=0.0):
-        super(PytorchDecoderLayer, self).__init__()
-        self.nM = nM
-        self.self_attn = PytorchMultiHeadedAttention(nM=nM, nH=nH)
-        self.src_attn = PytorchMultiHeadedAttention(nM=nM, nH=nH)
-        self.feed_forward = PytorchPositionwiseFeedForward(nM, nM)
-        self.sublayer = clones(PytorchSublayerConnection(nM, dropout), 3)
-
-    def forward(self, input):
-        x, memory, src_mask, tgt_mask = input
-        "Follow Figure 1 (right) for connections."
-        m = memory
-        x = self.sublayer[0](x, lambda x: self.self_attn((x, x, x, tgt_mask)))
-        x = self.sublayer[1](x, lambda x: self.src_attn((x, m, m, src_mask)))
-        return self.sublayer[2](x, self.feed_forward)
-
-
 class DecoderLayer(Model):
     def __init__(self, nM=300, nH=6):
         Model.__init__(self)
