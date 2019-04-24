@@ -107,18 +107,32 @@ class EncoderLayer(Model):
         Model.__init__(self)
         self.attn = MultiHeadedAttention(nM=nM, nH=nH)
         self.ffd = PositionwiseFeedForward(nM, nM)
+        self.norm = PyTorchWrapper(PytorchLayerNorm())
         self.nM = nM
 
     def begin_update(self, input, drop=0.0):
         X0, mask = input
-        # TODO: the following two layers should do x + layer(norm(x))
-        (X1, _), b_X1 = self.attn.begin_update((X0, mask, None))
-        X2, b_X2 = self.ffd.begin_update(X1)
-        def finish_update(dX2, sgd=None):
+        X1, b_X1 = self.attn.begin_update((X0, mask, None))
+        X2, b_X2 = self.norm.begin_update(X1)
+        X3 = X0 + X2
+
+        X4, b_X4 = self.ffd.begin_update(X3)
+        X5, b_X5 = self.norm.begin_update(X4)
+        X6 = X3 + X5
+
+        def finish_update(dX6, sgd=None):
+            dX5 = dX6
+            dX4 = b_X5(dX5)
+            dX3 = b_X4(dX4)
+            dX3 += dX6
+
+            dX2 = dX3
             dX1 = b_X2(dX2)
-            dX0 = b_X1(X1)
+            dX0 = b_X1(dX1)
+
+            dX0 += dX3
             return X0
-        return (X2, mask), finish_update
+        return (X6, mask), finish_update
 
 
 class Decoder(nn.Module):
