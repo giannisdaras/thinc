@@ -373,7 +373,6 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
         train_accuracies.append(0.)
         dev_accuracies.append(0.)
         train_totals.append(0.)
-
     with model.begin_training(batch_size=nB, nb_epoch=nE) as (trainer, optimizer):
         trainer.dropout = dropout
         trainer.dropout_decay = 1e-4

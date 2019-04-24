@@ -83,13 +83,7 @@ class PytorchLayerNorm(nn.Module):
 class EncoderLayer(Model):
     def __init__(self, nM=300, nH=6, dropout=0.0):
         Model.__init__(self)
-        # self.attn = MultiHeadedAttention(nM=nM, nH=nH)
-        o_xp = None
-        i_grad = [1, 1, 0, 0]
-        b_map = [[0]]
-        ret_x = [0]
-        conf = [i_grad, o_xp, b_map, ret_x]
-        self.attn = PyTorchWrapper(PytorchMultiHeadedAttention(nM=nM, nH=nH), conf=conf)
+        self.attn = MultiHeadedAttention(nM=nM, nH=nH)
         self.ffd = PositionwiseFeedForward(nM, nM)
         self.norm = PyTorchWrapper(PytorchLayerNorm())
         self.nM = nM
@@ -97,8 +91,7 @@ class EncoderLayer(Model):
 
     def begin_update(self, input, drop=0.0):
         X0, mask = input
-        # X1, b_X1 = self.attn.begin_update((X0, mask, None))
-        X1, b_X1 = self.attn.begin_update((X0, X0, X0, mask))
+        X1, b_X1 = self.attn.begin_update((X0, mask, None))
         X2, b_X2 = self.norm.begin_update(X1)
         X3 = X0 + X2
 
@@ -124,35 +117,18 @@ class EncoderLayer(Model):
 class DecoderLayer(Model):
     def __init__(self, nM=300, nH=6):
         Model.__init__(self)
-        # self.y_attn = MultiHeadedAttention(nM=nM, nH=nH)
-        # self.x_attn = MultiHeadedAttention(nM=nM, nH=nH)
+        self.y_attn = MultiHeadedAttention(nM=nM, nH=nH)
+        self.x_attn = MultiHeadedAttention(nM=nM, nH=nH)
         self.norm = PyTorchWrapper(PytorchLayerNorm())
-        ''' Self attention conf '''
-        o_xp = None
-        i_grad = [1, 1, 0, 0]
-        b_map = None
-        ret_x = [0]
-        conf = [i_grad, o_xp, b_map, ret_x]
-        self.y_attn = PyTorchWrapper(PytorchMultiHeadedAttention(nM=nM, nH=nH), conf=conf)
-
-        ''' Outer attention conf'''
-        o_xp = None
-        i_grad = [1, 1, 0, 0]
-        b_map = None
-        ret_x = [0, 1]
-        conf = [i_grad, o_xp, b_map, ret_x]
-        self.x_attn = PyTorchWrapper(PytorchMultiHeadedAttention(nM=nM, nH=nH), conf=conf)
         self.ffd = PositionwiseFeedForward(nM, nM)
         self.layers_ = [self.norm, self.y_attn, self.x_attn, self.ffd]
 
     def begin_update(self, input, drop=0.0):
         Y0, X0, X_mask, Y_mask = input
-        # Y1, b_Y1 = self.y_attn.begin_update((Y0, Y_mask, None))
-        Y1, b_Y1 = self.y_attn.begin_update((Y0, Y0, Y0, Y_mask))
+        Y1, b_Y1 = self.y_attn.begin_update((Y0, Y_mask, None))
         Y2, b_Y2 = self.norm.begin_update(Y1)
         Y3 = Y0 + Y2
-        # Y4, b_Y4 = self.x_attn.begin_update((Y3, X0, X_mask, None, None))
-        Y4, b_Y4 = self.x_attn.begin_update((Y3, X0, X0, X_mask))
+        Y4, b_Y4 = self.x_attn.begin_update((Y3, X0, X_mask, None, None))
         Y5, b_Y5 = self.norm.begin_update(Y4)
         Y6 = Y3 + Y5
         Y7, b_Y7 = self.ffd.begin_update(Y6)
