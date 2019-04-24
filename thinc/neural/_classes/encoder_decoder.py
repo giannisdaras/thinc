@@ -92,14 +92,21 @@ class PytorchLayerNorm(nn.Module):
         return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
 
 
-            dY1 = backprop_output(d_word_probs, sgd=sgd)
-            zeros = Model.ops.xp.zeros(X0.shape, dtype=Model.ops.xp.float32)
-            dX1, dY0 = backprop_decode((zeros, dY1), sgd=sgd)
-            dX0 = backprop_encode(dX1, sgd=sgd)
-            return (dX0, dY0)
 
-        return (word_probs, Xmask), finish_update
 
+class PytorchSublayerConnection(nn.Module):
+    """
+    A residual connection followed by a layer norm.
+    Note for code simplicity the norm is first as opposed to last.
+    """
+    def __init__(self, nM=300, dropout=0.0):
+        super(PytorchSublayerConnection, self).__init__()
+        self.norm = PytorchLayerNorm(nM)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, sublayer):
+        "Apply residual connection to any sublayer with the same size."
+        return x + self.dropout(sublayer(self.norm(x)))
 
 def OneEncoderLayer(nH, nM):
     return chain(
