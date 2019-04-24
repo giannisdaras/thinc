@@ -34,10 +34,15 @@ class EncoderDecoder(Model):
         self.nH = nH
         self.nM = nM
         self.nTGT = nTGT
-        self.enc = clone(EncoderLayer(self.nH, self.nM), nS)
-        self.dec = clone(DecoderLayer(self.nH, self.nM), nS)
-        # self.dec = PoolingDecoder(self.nM)
-        # self.dec = PyTorchWrapper(PytorchDecoder(self.nH, self.nM), conf=[[]])
+        self.enc = clone(EncoderLayer(nM=nM, nH=nH), nS)
+        self.dec = clone(DecoderLayer(nM=nM, nH=nH), nS)
+        self.norm = PyTorchWrapper(PytorchLayerNorm(nM=300))
+
+        # dec_i_grad = [1, 1, 0, 0]
+        # dec_o_xp = None
+        # dec_b_map = [[0], [1]]
+        # dec_ret_x = [0, 1]
+        # self.dec = PyTorchWrapper(Decoder(nM=nM, nH=nH, nS=nS), conf=[dec_i_grad, dec_o_xp, dec_b_map, dec_ret_x])
         self.proj = with_reshape(Softmax(nO=nTGT, nI=nM))
         self._layers = [self.enc, self.dec, self.proj]
 
@@ -48,15 +53,25 @@ class EncoderDecoder(Model):
         the network. Output is the golden output.
         Input: nB x nL x nM
         '''
-        if len(inputs) == 2:
-            (X0, Xmask), (Y0, Ymask) = inputs
-            sentX = None
-            sentY = None
-        else:
-            (X0, Xmask), (Y0, Ymask), (sentX, sentY) = inputs
+        X0, Xmask, Y0, Ymask = inputs
+        sentX = None
+        sentY = None
+        (X1, _,), backprop_encode = self.enc.begin_update((X0, Xmask))
+        X2, b_X2 = self.norm.begin_update(X1)
+        (Y1, _, _, _), backprop_decode = self.dec.begin_update((Y0, X2, Xmask, Ymask))
+        Y2, b_Y2 = self.norm.begin_update(Y1)
+        # Y1, backprop_decode = self.dec.begin_update((Y0, X1, Xmask, Ymask))
+        word_probs, backprop_output = self.proj.begin_update(Y2, drop=drop)
 
-        (X1, _, _), backprop_encode = self.enc.begin_update((X0, Xmask, sentX), drop=drop)
-        (_, (Y1, _, _)), backprop_decode = self.dec.begin_update(((X1, Xmask, sentX), (Y0, Ymask, sentY)), drop=drop)
+        def finish_update(d_word_probs, sgd=None):
+            dY2 = backprop_output(d_word_probs, sgd=sgd)
+            dY1 = b_Y2(dY2)
+            zeros = Model.ops.xp.zeros(X0.shape, dtype=Model.ops.xp.float32)
+            dY0, dX2 = backprop_decode((dY1, zeros), sgd=sgd)
+            dX1 = b_X2(dX2)
+            dX0 = backprop_encode(dX1, sgd=sgd)
+            return (dX0, dY0)
+        return (word_probs, Xmask), finish_update
 
 
 
