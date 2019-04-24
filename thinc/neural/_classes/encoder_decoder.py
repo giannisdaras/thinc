@@ -18,6 +18,10 @@ from thinc.extra.wrappers import PyTorchWrapper
 import torch.nn.functional as F
 
 
+def clones(module, N):
+    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
+
+
 class EncoderDecoder(Model):
     def __init__(self, nS=1, nH=6, nM=300, nTGT=10000):
         '''
@@ -65,11 +69,6 @@ class EncoderDecoder(Model):
             dX0 = backprop_encode(dX1, sgd=sgd)
             return (dX0, dY0)
         return (word_probs, Xmask), finish_update
-
-
-def clones(module, N):
-    "Produce N identical layers."
-    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
 
 
 class PytorchLayerNorm(nn.Module):
