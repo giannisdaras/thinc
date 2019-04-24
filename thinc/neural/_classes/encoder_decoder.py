@@ -74,6 +74,9 @@ class EncoderDecoder(Model):
         return (word_probs, Xmask), finish_update
 
 
+def clones(module, N):
+    "Produce N identical layers."
+    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
 
         word_probs, backprop_output = self.proj.begin_update(Y1, drop=drop)
         # Right-shift the word probabilities
