@@ -8,7 +8,7 @@ from .layernorm import LayerNorm
 from .maxout import Maxout
 from .resnet import Residual
 from .affine import Affine
-from .multiheaded_attention import MultiHeadedAttention, PytorchMultiHeadedAttention
+from .multiheaded_attention import MultiHeadedAttention
 import copy
 import math
 import numpy as np
