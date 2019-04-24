@@ -110,18 +110,17 @@ class PytorchSublayerConnection(nn.Module):
 
 
 class EncoderLayer(Model):
-    def __init__(self, nH, nM):
+    def __init__(self, nM=300, nH=6, dropout=0.0):
         Model.__init__(self)
-        self.nH = nH
+        self.attn = MultiHeadedAttention(nM=nM, nH=nH)
+        self.ffd = PositionwiseFeedForward(nM, nM)
         self.nM = nM
-        self.attn = PyTorchWrapper(PytorchMultiHeadedAttention(nM, nH, layer='Encoder'),
-                    conf=[[True, False, False], [True, False], None, [1, 1]])
-        self.ffd = with_reshape(LayerNorm(Affine(nM, nM)))
 
     def begin_update(self, input, drop=0.0):
-        X0, mask, sentX = input
-        (X1, _), b_attn = self.attn.begin_update(input)
-        X2, b_ffd = self.ffd.begin_update(X1)
+        X0, mask = input
+        # TODO: the following two layers should do x + layer(norm(x))
+        (X1, _), b_X1 = self.attn.begin_update((X0, mask, None))
+        X2, b_X2 = self.ffd.begin_update(X1)
         def finish_update(dX2, sgd=None):
             dX1 = b_ffd(dX2, sgd=sgd)
             dX0 = b_attn(dX1, sgd=sgd)
