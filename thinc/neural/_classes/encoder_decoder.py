@@ -79,10 +79,18 @@ def clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
 
 
-        def finish_update(d_word_probs, sgd=None):
-            # Unshift
-            d_word_probs[:, :-1] = d_word_probs[:, 1:]
-            d_word_probs[:, -1] = 0.
+class PytorchLayerNorm(nn.Module):
+    def __init__(self, nM=300, eps=1e-6):
+        super(PytorchLayerNorm, self).__init__()
+        self.a_2 = nn.Parameter(torch.ones(nM))
+        self.b_2 = nn.Parameter(torch.zeros(nM))
+        self.eps = eps
+
+    def forward(self, x):
+        mean = x.mean(-1, keepdim=True)
+        std = x.std(-1, keepdim=True)
+        return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
+
 
             dY1 = backprop_output(d_word_probs, sgd=sgd)
             zeros = Model.ops.xp.zeros(X0.shape, dtype=Model.ops.xp.float32)
