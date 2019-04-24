@@ -108,11 +108,6 @@ class PytorchSublayerConnection(nn.Module):
         "Apply residual connection to any sublayer with the same size."
         return x + self.dropout(sublayer(self.norm(x)))
 
-def OneEncoderLayer(nH, nM):
-    return chain(
-        MultiHeadedAttention(nM, nH, layer='Encoder'),
-        with_getitem(0, with_reshape(LayerNorm(Affine(nM, nM))))
-    )
 
 class EncoderLayer(Model):
     def __init__(self, nH, nM):
