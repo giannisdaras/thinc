@@ -162,95 +162,64 @@ class PytorchDecoderLayer(nn.Module):
 
 
 class DecoderLayer(Model):
-    def __init__(self, nH, nM):
+    def __init__(self, nM=300, nH=6):
         Model.__init__(self)
-        self.nH = nH
-        self.nM = nM
-        # self.x_attn = MultiHeadedAttention(nM, nH, layer='Decoder')
-        # self.y_attn = MultiHeadedAttention(nM, nH, layer='Decoder')
-        self.x_attn = PyTorchWrapper(PytorchMultiHeadedAttention(nM, nH, layer='Decoder'), conf=[[True, True, False, False, False], [True, False], [1, 1, 0, 0], [1, 1]])
-        self.y_attn = PyTorchWrapper(PytorchMultiHeadedAttention(nM, nH, layer='Decoder'), conf=[[True, False, False], [True, False], None, [1, 1]])
-        self.ffd = with_reshape(LayerNorm(Affine(nM, nM)))
-        self._layers = [self.x_attn, self.y_attn, self.ffd]
+        # TODO: residual
+        self.y_attn = MultiHeadedAttention(nM=nM, nH=nH)
+        # TODO: residual
+        self.x_attn = MultiHeadedAttention(nM=nM, nH=nH)
+        # outer attention config
+        # o_xp = None
+        # i_grad = [1, 1, 0, 0]
+        # b_map = [[0, 1]]
+        # ret_x = [0, 1]
+        # conf = [i_grad, o_xp, b_map, ret_x]
+        # self.x_attn = PyTorchWrapper(PytorchMultiHeadedAttention(nM=nM, nH=nH), conf=conf)
+        self.ffd = PositionwiseFeedForward(nM, nM)
 
-    def begin_update(self, X_Y, drop=0.0):
-        (X0, Xmask, sentX), (Y0, Ymask, sentY) = X_Y
-        (Y1, _), bp_self_attn = self.y_attn.begin_update((Y0, Ymask, sentY))
-        (mixed, _), bp_mix_attn = self.x_attn.begin_update((Y1, X0, Xmask, sentY, sentX))
-        output, bp_output = self.ffd.begin_update(mixed)
+    def begin_update(self, input, drop=0.0):
+        Y0, X0, X_mask, Y_mask = input
+        (Y1, _), b_Y1 = self.y_attn.begin_update((Y0, Y_mask, None))
+        # Y2, b_Y2 = self.x_attn.begin_update((Y1, X0, X0, X_mask))
+        (Y2, _), b_Y2 = self.x_attn.begin_update((Y1, X0, X_mask, None, None))
+        Y3, b_Y3 = self.ffd.begin_update(Y2)
 
-        def finish_update(dXprev_d_output, sgd=None):
-            dXprev, d_output = dXprev_d_output
-            d_mixed = bp_output(d_output, sgd=sgd)
-            dY1, dX0 = bp_mix_attn(d_mixed, sgd=sgd)
-            dY0 = bp_self_attn(dY1, sgd=sgd)
-            return (dX0 + dXprev, dY0)
+        def finish_update(dY3_dX, sgd=None):
+            dY3, dX = dY3_dX
+            dY2 = b_Y3(dY3)
+            dY1, dX0 = b_Y2(dY2)
+            dY0 = b_Y1(dY1)
+            dX0 += dX
+            return dY0, dX0
+        return (Y3, X0, X_mask, Y_mask), finish_update
 
-        return ((X0, Xmask, sentX), (output, Ymask, sentY)), finish_update
+
+class PytorchPositionwiseFeedForward(nn.Module):
+    "Implements FFN equation."
+    def __init__(self, nM=300, nO=300, dropout=0.1):
+        super(PytorchPositionwiseFeedForward, self).__init__()
+        self.w_1 = nn.Linear(nM, nO)
+        self.w_2 = nn.Linear(nO, nM)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        return self.w_2(self.dropout(F.relu(self.w_1(x))))
 
 
-class PoolingDecoder(Model):
-    def __init__(self, nM):
+class PositionwiseFeedForward(Model):
+    def __init__(self, nM=300, nO=300, dropout=0.0):
         Model.__init__(self)
-        self.nM = nM
-        self.ffd = LayerNorm(Maxout(nO=nM, nI=nM*3, pieces=3))
-        self._layers = [self.ffd]
+        self.ffd1 = with_reshape(ReLu(nM, nO))
+        self.ffd2 = with_reshape(Affine(nO, nM))
+        self.layers_ = [self.ffd1, self.ffd2]
+        self.nO = nO
 
-    def begin_update(self, X_Y, drop=0.):
-        (X0, Xmask, _), (Y0, Ymask, _) = X_Y
-        X_masked = self.ops.xp.copy(X0)
-        X_masked[Xmask[:, 0, :] == 0] = -math.inf
-        Xpool = X_masked.max(axis=1, keepdims=True)
+    def begin_update(self, X0, drop=0.0):
+        X1, b_ffd1 = self.ffd1.begin_update(X0)
+        X2, b_ffd2 = self.ffd2.begin_update(X1)
 
-        Y_masked = self.ops.xp.copy(Y0)
-        Y_masked[Ymask[:, -1, :] == 0] = -math.inf
-        Ypool = self.ops.allocate((X0.shape[0], X0.shape[1], self.nM))
-
-        # maxing only over previous elements
-        for i in range(X0.shape[1]):
-            Ypool[:, i, :] = Y_masked[:, :i+1, :].max(axis=1, keepdims=True).squeeze()
-
-        mixed = self.ops.allocate((X0.shape[0], X0.shape[1], self.nM*3))
-        mixed[:, :, :self.nM] = Xpool
-        mixed[:, :, self.nM:self.nM*2] = Ypool
-        mixed[:, :, self.nM*2:] = Y0
-        output, bp_output = self.ffd.begin_update(mixed.reshape((-1, self.nM*3)))
-        output = output.reshape((X0.shape[0], X0.shape[1], output.shape[1]))
-
-        def backprop_pooling_decoder(dX_d_output, sgd=None):
-            dXin, d_output = dX_d_output
-            d_output = d_output.reshape((X0.shape[0]*X0.shape[1], d_output.shape[2]))
-            d_mixed = bp_output(d_output, sgd=sgd)
-            d_mixed = d_mixed.reshape((X0.shape[0], X0.shape[1], d_mixed.shape[1]))
-            dXpool = d_mixed[:, :, :self.nM]
-            dYpool = d_mixed[:, :, self.nM:self.nM*2]
-            dY0 = d_mixed[:, :, self.nM*2:]
-            dX0 = self.ops.allocate(X0.shape)
-            for i in range(X0.shape[0]):
-                for j in range(X0.shape[1]):
-                    for k in range(X0.shape[2]):
-                        if X0[i, j, k] >= Xpool[i, 0, k]:
-                            dX0[i, j, k] += dXpool[i, j, k]
-            for i in range(Y0.shape[0]):
-                for j in range(Y0.shape[1]):
-                    for k in range(Y0.shape[2]):
-                        if Y0[i, j, k] >= Ypool[i, j, k]:
-                            dY0[i, j, k] += dYpool[i, j, k]
-            return dXin + dX0, dY0
-        return ((X0, Xmask), (output, Ymask)), backprop_pooling_decoder
-
-
-class PytorchDecoder(nn.Module):
-    def __init__(self, nH, nM):
-        self.nH = nH
-        self.nM = nM
-        self.x_attn = PytorchMultiHeadedAttention(nM, nH, layer='Decoder')
-        self.y_attn = PytorchMultiHeadedAttention(nM, nH, layer='Decoder')
-        self.ffd = nn.Linear(nM, nM)
-
-    def forward(self, X_Y):
-        (X0, Xmask, sentX), (Y0, Ymask, sentY) = X_Y
-        (Y1, _) = self.y_attn((Y0, Ymask, sentY))
-        (mixed, _) = self.x_attn((Y1, X0, Xmask, sentY, sentX))
-        output = self.ffd(mixed)
-        return ((X0, Xmask), (output, Ymask))
+        def finish_update(dX2):
+            dX1 = b_ffd2(dX2)
+            dX0 = b_ffd1(dX1)
+            return dX0
+        return X2, finish_update
