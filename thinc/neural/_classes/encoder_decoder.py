@@ -152,46 +152,47 @@ class Decoder(nn.Module):
 class DecoderLayer(Model):
     def __init__(self, nM=300, nH=6):
         Model.__init__(self)
-        # TODO: residual
-        self.y_attn = MultiHeadedAttention(nM=nM, nH=nH)
-        # TODO: residual
-        self.x_attn = MultiHeadedAttention(nM=nM, nH=nH)
-        # outer attention config
-        # o_xp = None
-        # i_grad = [1, 1, 0, 0]
-        # b_map = [[0, 1]]
-        # ret_x = [0, 1]
-        # conf = [i_grad, o_xp, b_map, ret_x]
-        # self.x_attn = PyTorchWrapper(PytorchMultiHeadedAttention(nM=nM, nH=nH), conf=conf)
+        # self.y_attn = MultiHeadedAttention(nM=nM, nH=nH)
+        # self.x_attn = MultiHeadedAttention(nM=nM, nH=nH)
+        self.norm = PyTorchWrapper(PytorchLayerNorm())
+        o_xp = None  # one output
+        i_grad = [1, 1, 0, 0]
+        b_map = [[0, 1]]  # this derivative should affect both inputs
+        ret_x = [0, 1]  # return the dericatives as they come
+        conf = [i_grad, o_xp, b_map, ret_x]
+        self.x_attn = PyTorchWrapper(PytorchMultiHeadedAttention(nM=nM, nH=nH), conf=conf)
+        b_map = [[0]]  # this derivative should affect both inputs
+        ret_x = [0]  # return the dericatives as they come
+        conf = [i_grad, o_xp, b_map, ret_x]
+        self.y_attn = PyTorchWrapper(PytorchMultiHeadedAttention(nM=nM, nH=nH), conf=conf)
         self.ffd = PositionwiseFeedForward(nM, nM)
 
     def begin_update(self, input, drop=0.0):
         Y0, X0, X_mask, Y_mask = input
-        (Y1, _), b_Y1 = self.y_attn.begin_update((Y0, Y_mask, None))
-        # Y2, b_Y2 = self.x_attn.begin_update((Y1, X0, X0, X_mask))
-        (Y2, _), b_Y2 = self.x_attn.begin_update((Y1, X0, X_mask, None, None))
-        Y3, b_Y3 = self.ffd.begin_update(Y2)
+        # Y1, b_Y1 = self.y_attn.begin_update((Y0, Y_mask, None))
+        Y1, b_Y1 = self.y_attn.begin_update((Y0, Y0, Y0, Y_mask))
+        Y2, b_Y2 = self.norm.begin_update(Y1)
+        Y3 = Y0 + Y2
+        # Y4, b_Y4 = self.x_attn.begin_update((Y3, X0, X_mask, None, None))
+        Y4, b_Y4 = self.x_attn.begin_update((Y3, X0, X0, X_mask))
+        Y5, b_Y5 = self.norm.begin_update(Y4)
+        Y6 = Y3 + Y5
+        Y7, b_Y7 = self.ffd.begin_update(Y6)
 
-        def finish_update(dY3_dX, sgd=None):
-            dY3, dX = dY3_dX
-            dY2 = b_Y3(dY3)
-            dY1, dX0 = b_Y2(dY2)
+        def finish_update(dI, sgd=None):
+            dY7, dX = dI
+            dY6 = b_Y7(dY7)
+            dY5 = dY6
+            dY4 = b_Y5(dY5)
+            dY3, dX0 = b_Y4(dY4)
+            dY3 += dY6
+            dY2 = dY3
+            dY1 = b_Y2(dY2)
             dY0 = b_Y1(dY1)
+            dY0 += dY3
             dX0 += dX
-            return dY0, dX0
-        return (Y3, X0, X_mask, Y_mask), finish_update
-
-
-class PytorchPositionwiseFeedForward(nn.Module):
-    "Implements FFN equation."
-    def __init__(self, nM=300, nO=300, dropout=0.1):
-        super(PytorchPositionwiseFeedForward, self).__init__()
-        self.w_1 = nn.Linear(nM, nO)
-        self.w_2 = nn.Linear(nO, nM)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x):
-        return self.w_2(self.dropout(F.relu(self.w_1(x))))
+            return (dY0, dX0)
+        return (Y7, X0, X_mask, Y_mask), finish_update
 
 
 class PositionwiseFeedForward(Model):
