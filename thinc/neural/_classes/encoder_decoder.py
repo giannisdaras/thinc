@@ -122,10 +122,43 @@ class EncoderLayer(Model):
         (X1, _), b_X1 = self.attn.begin_update((X0, mask, None))
         X2, b_X2 = self.ffd.begin_update(X1)
         def finish_update(dX2, sgd=None):
-            dX1 = b_ffd(dX2, sgd=sgd)
-            dX0 = b_attn(dX1, sgd=sgd)
-            return dX0
-        return (X2, mask, sentX), finish_update
+            dX1 = b_X2(dX2)
+            dX0 = b_X1(X1)
+            return X0
+        return (X2, mask), finish_update
+
+
+class Decoder(nn.Module):
+    def __init__(self, nS=6, nH=6, nM=300):
+        super(Decoder, self).__init__()
+        layer = PytorchDecoderLayer()
+        self.layers = clones(layer, nS)
+        self.norm = PytorchLayerNorm(nM)
+
+    def forward(self, input):
+        x, memory, src_mask, tgt_mask = input
+        for layer in self.layers:
+            x = layer((x, memory, src_mask, tgt_mask))
+        return self.norm(x)
+
+
+class PytorchDecoderLayer(nn.Module):
+    "Decoder is made of self-attn, src-attn, and feed forward (defined below)"
+    def __init__(self, nM=300, nH=6, dropout=0.0):
+        super(PytorchDecoderLayer, self).__init__()
+        self.nM = nM
+        self.self_attn = PytorchMultiHeadedAttention(nM=nM, nH=nH)
+        self.src_attn = PytorchMultiHeadedAttention(nM=nM, nH=nH)
+        self.feed_forward = PytorchPositionwiseFeedForward(nM, nM)
+        self.sublayer = clones(PytorchSublayerConnection(nM, dropout), 3)
+
+    def forward(self, input):
+        x, memory, src_mask, tgt_mask = input
+        "Follow Figure 1 (right) for connections."
+        m = memory
+        x = self.sublayer[0](x, lambda x: self.self_attn((x, x, x, tgt_mask)))
+        x = self.sublayer[1](x, lambda x: self.src_attn((x, m, m, src_mask)))
+        return self.sublayer[2](x, self.feed_forward)
 
 
 class DecoderLayer(Model):
