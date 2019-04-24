@@ -62,10 +62,10 @@ class EncoderDecoder(Model):
 
         def finish_update(d_word_probs, sgd=None):
             dY2 = backprop_output(d_word_probs, sgd=sgd)
-            dY1 = b_Y2(dY2)
+            dY1 = b_Y2(dY2, sgd=sgd)
             zeros = Model.ops.xp.zeros(X0.shape, dtype=Model.ops.xp.float32)
             dY0, dX2 = backprop_decode((dY1, zeros), sgd=sgd)
-            dX1 = b_X2(dX2)
+            dX1 = b_X2(dX2, sgd=sgd)
             dX0 = backprop_encode(dX1, sgd=sgd)
             return (dX0, dY0)
         return (word_probs, Xmask), finish_update
@@ -84,35 +84,24 @@ class PytorchLayerNorm(nn.Module):
         return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
 
 
-class SublayerConnection(Model):
-    def __init__(self, nM=300):
-        Model.__init__(self)
-        self.norm = PyTorchWrapper(PytorchLayerNorm())
-
-    def begin_update(self, X0, sublayer):
-        X1, b_X1 = sublayer.begin_update(X0)
-        X2, b_X2 = self.norm.begin_update(X1)
-        X3 = X0 + X2
-
-        def finish_update(dX3):
-            dX2 = dX3
-            dX1 = b_X2(dX2)
-            dX0 = b_X1(dX1)
-            return dX0 + dX3
-        return X3, finish_update
-
-
 class EncoderLayer(Model):
     def __init__(self, nM=300, nH=6, dropout=0.0):
         Model.__init__(self)
-        self.attn = MultiHeadedAttention(nM=nM, nH=nH)
+        # self.attn = MultiHeadedAttention(nM=nM, nH=nH)
+        o_xp = None
+        i_grad = [1, 1, 0, 0]
+        b_map = [[0]]
+        ret_x = [0]
+        conf = [i_grad, o_xp, b_map, ret_x]
+        self.attn = PyTorchWrapper(PytorchMultiHeadedAttention(nM=nM, nH=nH), conf=conf)
         self.ffd = PositionwiseFeedForward(nM, nM)
         self.norm = PyTorchWrapper(PytorchLayerNorm())
         self.nM = nM
 
     def begin_update(self, input, drop=0.0):
         X0, mask = input
-        X1, b_X1 = self.attn.begin_update((X0, mask, None))
+        # X1, b_X1 = self.attn.begin_update((X0, mask, None))
+        X1, b_X1 = self.attn.begin_update((X0, X0, X0, mask))
         X2, b_X2 = self.norm.begin_update(X1)
         X3 = X0 + X2
 
@@ -122,31 +111,17 @@ class EncoderLayer(Model):
 
         def finish_update(dX6, sgd=None):
             dX5 = dX6
-            dX4 = b_X5(dX5)
-            dX3 = b_X4(dX4)
+            dX4 = b_X5(dX5, sgd=sgd)
+            dX3 = b_X4(dX4, sgd=sgd)
             dX3 += dX6
 
             dX2 = dX3
-            dX1 = b_X2(dX2)
-            dX0 = b_X1(dX1)
+            dX1 = b_X2(dX2, sgd=sgd)
+            dX0 = b_X1(dX1, sgd=sgd)
 
             dX0 += dX3
             return X0
         return (X6, mask), finish_update
-
-
-class Decoder(nn.Module):
-    def __init__(self, nS=6, nH=6, nM=300):
-        super(Decoder, self).__init__()
-        layer = PytorchDecoderLayer()
-        self.layers = clones(layer, nS)
-        self.norm = PytorchLayerNorm(nM)
-
-    def forward(self, input):
-        x, memory, src_mask, tgt_mask = input
-        for layer in self.layers:
-            x = layer((x, memory, src_mask, tgt_mask))
-        return self.norm(x)
 
 
 class DecoderLayer(Model):
@@ -155,16 +130,21 @@ class DecoderLayer(Model):
         # self.y_attn = MultiHeadedAttention(nM=nM, nH=nH)
         # self.x_attn = MultiHeadedAttention(nM=nM, nH=nH)
         self.norm = PyTorchWrapper(PytorchLayerNorm())
-        o_xp = None  # one output
+        ''' Self attention conf '''
+        o_xp = None
         i_grad = [1, 1, 0, 0]
-        b_map = [[0, 1]]  # this derivative should affect both inputs
-        ret_x = [0, 1]  # return the dericatives as they come
-        conf = [i_grad, o_xp, b_map, ret_x]
-        self.x_attn = PyTorchWrapper(PytorchMultiHeadedAttention(nM=nM, nH=nH), conf=conf)
-        b_map = [[0]]  # this derivative should affect both inputs
-        ret_x = [0]  # return the dericatives as they come
+        b_map = None
+        ret_x = [0]
         conf = [i_grad, o_xp, b_map, ret_x]
         self.y_attn = PyTorchWrapper(PytorchMultiHeadedAttention(nM=nM, nH=nH), conf=conf)
+
+        ''' Outer attention conf'''
+        o_xp = None
+        i_grad = [1, 1, 0, 0]
+        b_map = None
+        ret_x = [0, 1]
+        conf = [i_grad, o_xp, b_map, ret_x]
+        self.x_attn = PyTorchWrapper(PytorchMultiHeadedAttention(nM=nM, nH=nH), conf=conf)
         self.ffd = PositionwiseFeedForward(nM, nM)
 
     def begin_update(self, input, drop=0.0):
@@ -181,14 +161,14 @@ class DecoderLayer(Model):
 
         def finish_update(dI, sgd=None):
             dY7, dX = dI
-            dY6 = b_Y7(dY7)
+            dY6 = b_Y7(dY7, sgd=sgd)
             dY5 = dY6
-            dY4 = b_Y5(dY5)
-            dY3, dX0 = b_Y4(dY4)
+            dY4 = b_Y5(dY5, sgd=sgd)
+            dY3, dX0 = b_Y4(dY4, sgd=sgd)
             dY3 += dY6
             dY2 = dY3
-            dY1 = b_Y2(dY2)
-            dY0 = b_Y1(dY1)
+            dY1 = b_Y2(dY2, sgd=sgd)
+            dY0 = b_Y1(dY1, sgd=sgd)
             dY0 += dY3
             dX0 += dX
             return (dY0, dX0)
@@ -207,8 +187,8 @@ class PositionwiseFeedForward(Model):
         X1, b_ffd1 = self.ffd1.begin_update(X0)
         X2, b_ffd2 = self.ffd2.begin_update(X1)
 
-        def finish_update(dX2):
-            dX1 = b_ffd2(dX2)
-            dX0 = b_ffd1(dX1)
+        def finish_update(dX2, sgd=None):
+            dX1 = b_ffd2(dX2, sgd=sgd)
+            dX0 = b_ffd1(dX1, sgd=sgd)
             return dX0
         return X2, finish_update
