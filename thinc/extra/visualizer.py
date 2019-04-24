@@ -11,7 +11,7 @@ def visualize_attention(x, y, weights, layer='Encoder', self_attn=True):
             weights: (nH, nL, nL)
     '''
     def heatmap(x, y, data, ax):
-        seaborn.heatmap(data, square=True, xticklabels=x, yticklabels=y, vmin=0.0, vmax=1.0,
+        seaborn.heatmap(data, square=True, xticklabels=y, yticklabels=x, vmin=0.0, vmax=1.0,
                         cbar_kws = dict(use_gridspec=False, location="top"),
                         ax=ax)
     num = min(weights.shape[0], 4)
