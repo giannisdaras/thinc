@@ -3,16 +3,20 @@ from __future__ import unicode_literals, print_function
 from .model import Model
 from ...api import chain, clone, with_getitem, wrap, with_reshape
 from .softmax import Softmax
+from .relu import ReLu
 from .layernorm import LayerNorm
 from .maxout import Maxout
 from .resnet import Residual
 from .affine import Affine
-from .multiheaded_attention import MultiHeadedAttention, \
-    PytorchMultiHeadedAttention
+from .multiheaded_attention import MultiHeadedAttention, PytorchMultiHeadedAttention
+import copy
 import math
 import numpy as np
 import torch.nn as nn
+import torch
 from thinc.extra.wrappers import PyTorchWrapper
+import torch.nn.functional as F
+
 
 class EncoderDecoder(Model):
     def __init__(self, nS=1, nH=6, nM=300, nTGT=10000):
