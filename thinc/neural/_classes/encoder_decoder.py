@@ -84,21 +84,22 @@ class PytorchLayerNorm(nn.Module):
         return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
 
 
+class SublayerConnection(Model):
+    def __init__(self, nM=300):
+        Model.__init__(self)
+        self.norm = PyTorchWrapper(PytorchLayerNorm())
 
+    def begin_update(self, X0, sublayer):
+        X1, b_X1 = sublayer.begin_update(X0)
+        X2, b_X2 = self.norm.begin_update(X1)
+        X3 = X0 + X2
 
-class PytorchSublayerConnection(nn.Module):
-    """
-    A residual connection followed by a layer norm.
-    Note for code simplicity the norm is first as opposed to last.
-    """
-    def __init__(self, nM=300, dropout=0.0):
-        super(PytorchSublayerConnection, self).__init__()
-        self.norm = PytorchLayerNorm(nM)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x, sublayer):
-        "Apply residual connection to any sublayer with the same size."
-        return x + self.dropout(sublayer(self.norm(x)))
+        def finish_update(dX3):
+            dX2 = dX3
+            dX1 = b_X2(dX2)
+            dX0 = b_X1(dX1)
+            return dX0 + dX3
+        return X3, finish_update
 
 
 class EncoderLayer(Model):
