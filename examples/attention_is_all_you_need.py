@@ -160,18 +160,6 @@ def get_dicts(vocab):
     return word2indx, indx2word
 
 
-
-def resize_vectors(vectors):
-    xp = get_array_module(vectors.data)
-    shape = (int(vectors.shape[0]*1.1), vectors.shape[1])
-    if not hasattr(xp, 'resize'):
-        vectors.data = vectors.data.get()
-        vectors.resize(shape)
-        vectors.data = xp.array(vectors.data)
-    else:
-        vectors.resize(shape)
-
-
 def create_batch():
     def create_batch_forward(Xs_Ys, drop=0.):
         '''
@@ -202,9 +190,7 @@ def create_batch():
             return dXs, dYs
 
         batch = Batch((Xs, Ys), (nX, nY))
-        # TODO: experiment
         return (batch.X, batch.X_mask, batch.y, batch.y_mask), create_batch_backward
-        # return ((batch.X, batch.X_mask), (batch.y, batch.y_mask)), create_batch_backward
     model = layerize(create_batch_forward)
     return model
 
@@ -240,13 +226,16 @@ def get_model_sentence(Yh, indx2word):
     return sentences
 
 
-def get_loss(ops, Yh, Y_docs, Xmask):
+def get_loss(ops, Yh, Y_docs, Xmask, epoch=False, d={}):
     Y_ids = docs2ids(Y_docs)
     guesses = Yh.argmax(axis=-1)
     nC = Yh.shape[-1]
     Y = [to_categorical(y, nb_classes=nC) for y in Y_ids]
     nL = max(Yh.shape[1], max(y.shape[0] for y in Y))
     Y, _ = pad_sequences(ops, Y, pad_to=nL)
+    if epoch:
+        print(' '.join(get_model_sentence(Yh, d)[2]))
+        print(Y_docs[2])
     is_accurate = (Yh.argmax(axis=-1) == Y.argmax(axis=-1))
     is_not_accurate = (Yh.argmax(axis=-1) != Y.argmax(axis=-1))
     total = is_accurate.sum() + is_not_accurate.sum()
@@ -297,12 +286,12 @@ def FancyEmbed(width, rows, cols=(ORTH, SHAPE, PREFIX, SUFFIX)):
     lim=("Number of sentences to load from dataset", "option", "l", int),
     nM=("Embeddings size", "option", "nM", int),
     mL=("Max length sentence in dataset", "option", "mL", int),
-    nTGT=("Vocabulary size", "option", "nTGT", int)
-
-
+    nTGT=("Vocabulary size", "option", "nTGT", int),
+    save=("Save model to disk", "option", "save", bool),
+    save_name=("Name of file saved to disk. Save option must be enabled")
 )
 def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
-        nM=300, mL=20, nTGT=1000):
+        nM=300, mL=20, nTGT=3500, save=False, save_name="model.pkl"):
     if use_gpu != -1:
         # TODO: Make specific to different devices, e.g. 1 vs 0
         spacy.require_gpu()
@@ -326,10 +315,13 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
                                   dev_X[:dev_lim], dev_Y[:dev_lim], mL)
     test_X, test_Y = spacy_tokenize(nlp_en.tokenizer, nlp_de.tokenizer,
                                     test_X[:test_lim], test_Y[:test_lim], mL)
-    all_X_docs = train_X + dev_X + test_X
-    all_y_docs = train_Y + dev_Y + test_Y
-    train_X = set_numeric_ids(nlp_en.vocab, all_X_docs, nTGT=nTGT)
-    train_Y = set_numeric_ids(nlp_de.vocab, all_y_docs, nTGT=nTGT)
+    train_X = set_numeric_ids(nlp_en.vocab, train_X, nTGT=nTGT)
+    dev_X = set_numeric_ids(nlp_en.vocab, dev_X, nTGT=nTGT)
+    test_X = set_numeric_ids(nlp_en.vocab, test_X, nTGT=nTGT)
+    train_Y = set_numeric_ids(nlp_de.vocab, train_Y, nTGT=nTGT)
+    dev_Y = set_numeric_ids(nlp_de.vocab, dev_Y, nTGT=nTGT)
+    test_Y = set_numeric_ids(nlp_de.vocab, test_Y, nTGT=nTGT)
+
     en_word2indx, en_indx2word = get_dicts(nlp_en.vocab)
     de_word2indx, de_indx2word = get_dicts(nlp_de.vocab)
     nTGT += 1
@@ -354,6 +346,7 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
     train_totals = [0.]
     dev_accuracies = [0.]
     dev_loss = [0.]
+
     def track_progress():
         correct = 0.
         total = 0.
@@ -390,6 +383,10 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
             losses[-1] += (dYh**2).sum()
             train_accuracies[-1] += C
             train_totals[-1] += total
+    if save:
+        model.to_disk(save_name)
+
+
 
 if __name__ == '__main__':
     plac.call(main)
