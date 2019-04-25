@@ -238,11 +238,12 @@ def get_loss(ops, Yh, Y_docs, Xmask, epoch=False, d={}):
         print(Y_docs[2])
     is_accurate = (Yh.argmax(axis=-1) == Y.argmax(axis=-1))
     is_not_accurate = (Yh.argmax(axis=-1) != Y.argmax(axis=-1))
-    total = is_accurate.sum() + is_not_accurate.sum()
     d_loss = Yh-Y
     for i, doc in enumerate(Y_docs):
         is_accurate[i, len(doc):] = 0
+        is_not_accurate[i, len(doc):] = 0
         d_loss[i, len(doc):] = 0
+    total = is_accurate.sum() + is_not_accurate.sum()
     return d_loss, is_accurate.sum(), total
 
 def visualize(model, X0, Y0):
@@ -353,14 +354,13 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
         for batch in minibatch(zip(dev_X, dev_Y), size=1024):
             X, Y = zip(*batch)
             Yh, Y_mask = model((X, Y))
-            L, C, t = get_loss(model.ops, Yh, Y, Y_mask)
+            L, C, total = get_loss(model.ops, Yh, Y, Y_mask)
             correct += C
             dev_loss[-1] += (L**2).sum()
-            total += t
         dev_accuracies[-1] = correct / total
         n_train = train_totals[-1]
         print(len(losses), losses[-1], train_accuracies[-1]/n_train,
-            dev_loss[-1], dev_accuracies[-1])
+              dev_loss[-1], dev_accuracies[-1])
         dev_loss.append(0.)
         losses.append(0.)
         train_accuracies.append(0.)
