@@ -36,7 +36,7 @@ class EncoderDecoder(Model):
         self.nM = nM
         self.nTGT = nTGT
         self.enc = clone(EncoderLayer(nM=nM, nH=nH), nS)
-        self.norm = PyTorchWrapper(PytorchLayerNorm(nM=300))
+        self.norm = PyTorchWrapper(PytorchLayerNorm(nM=nM))
         self.dec = clone(DecoderLayer(nM=nM, nH=nH), nS)
         self.proj = with_reshape(Softmax(nO=nTGT, nI=nM))
         self._layers = [self.enc, self.dec, self.proj]
@@ -49,8 +49,6 @@ class EncoderDecoder(Model):
         Input: nB x nL x nM
         '''
         X0, Xmask, Y0, Ymask = inputs
-        sentX = None
-        sentY = None
         (X1, _,), backprop_encode = self.enc.begin_update((X0, Xmask))
         X2, b_X2 = self.norm.begin_update(X1)
         (Y1, _, _, _), backprop_decode = self.dec.begin_update((Y0, X2, Xmask, Ymask))
@@ -82,7 +80,7 @@ class PytorchLayerNorm(nn.Module):
 
 
 class EncoderLayer(Model):
-    def __init__(self, nM=300, nH=6, dropout=0.0):
+    def __init__(self, nM=300, nH=6):
         Model.__init__(self)
         self.attn = MultiHeadedAttention(nM=nM, nH=nH)
         self.ffd = PositionwiseFeedForward(nM, nM)
