@@ -339,7 +339,7 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
             )
             >> apply_layers(Residual(position_encode), Residual(position_encode))
             >> create_batch()
-            >> EncoderDecoder(nS=nS, nH=nH, nTGT=nTGT)
+            >> EncoderDecoder(nS=nS, nH=nH, nTGT=nTGT, nM=nM)
         )
 
     losses = [0.]
