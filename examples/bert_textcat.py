@@ -17,7 +17,6 @@ from thinc.neural._classes.embed import Embed
 from thinc.misc import FeatureExtracter
 from thinc.api import wrap, chain, with_flatten, layerize
 from thinc.misc import Residual
-from spacy.pipeline import TextCategorizer
 from thinc.v2v import Model
 import numpy.random
 import random
@@ -207,16 +206,6 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
     train_X = set_numeric_ids(nlp.vocab, train_X)
     dev_X = set_numeric_ids(nlp.vocab, dev_X)
     print('Numeric ids ready')
-    textcat = nlp.create_pipe(
-            "textcat",
-            config={
-                "exclusive_classes": True,
-                "architecture": "simple_cnn",
-            }
-            )
-    nlp.add_pipe(textcat, last=True)
-    textcat.add_label("NEGATIVE")
-    textcat.add_label("POSITIVE")
     with Model.define_operators({">>": chain}):
         embed_cols = [ORTH, SHAPE, PREFIX, SUFFIX]
         extractor = FeatureExtracter(attrs=embed_cols)
@@ -267,18 +256,14 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
         optimizer.L2 = 1e-6
         optimizer.max_grad_norm = 1.0
         other_pipes = [pipe for pipe in nlp.pipe_names if pipe != "textcat"]
-        with nlp.disable_pipes(*other_pipes):
-            losses = {}
-            for X, Y in trainer.iterate(train_X, train_Y):
-                cats = [{"cats": {"POSITIVE": bool(y), "NEGATIVE": not bool(y)}} for y in Y]
-                nlp.update(X, cats, sgd=optimizer, drop=0.2, losses=losses)
-                Yh, backprop = model.begin_update(X)
-                total = len(X)
-                dYh, C = get_loss(Yh, Y)
-                backprop(dYh, sgd=optimizer)
-                losses[-1] += (dYh**2).sum()
-                train_accuracies[-1] += C
-                train_totals[-1] += len(Y)
+        for X, Y in trainer.iterate(train_X, train_Y):
+            Yh, backprop = model.begin_update(X)
+            total = len(X)
+            dYh, C = get_loss(Yh, Y)
+            backprop(dYh, sgd=optimizer)
+            losses[-1] += (dYh**2).sum()
+            train_accuracies[-1] += C
+            train_totals[-1] += len(Y)
     if save:
         model.to_disk(save_name)
 
