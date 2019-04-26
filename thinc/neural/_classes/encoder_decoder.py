@@ -84,7 +84,7 @@ class EncoderLayer(Model):
         Model.__init__(self)
         self.attn = MultiHeadedAttention(nM=nM, nH=nH)
         self.ffd = PositionwiseFeedForward(nM, nM)
-        self.norm = PyTorchWrapper(PytorchLayerNorm())
+        self.norm = PyTorchWrapper(PytorchLayerNorm(nM))
         self.nM = nM
         self.layers_ = [self.attn, self.ffd, self.norm]
 
@@ -118,7 +118,7 @@ class DecoderLayer(Model):
         Model.__init__(self)
         self.y_attn = MultiHeadedAttention(nM=nM, nH=nH)
         self.x_attn = MultiHeadedAttention(nM=nM, nH=nH)
-        self.norm = PyTorchWrapper(PytorchLayerNorm())
+        self.norm = PyTorchWrapper(PytorchLayerNorm(nM))
         self.ffd = PositionwiseFeedForward(nM, nM)
         self.layers_ = [self.norm, self.y_attn, self.x_attn, self.ffd]
 
