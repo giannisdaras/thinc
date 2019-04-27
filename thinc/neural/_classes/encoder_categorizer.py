@@ -5,7 +5,7 @@ from ...api import chain, clone, with_getitem, wrap, with_reshape
 from .softmax import Softmax
 from .affine import Affine
 from .multiheaded_attention import MultiHeadedAttention
-from .encoder_decoder import EncoderLayer
+from .encoder_decoder import EncoderLayer, PytorchLayerNorm
 from thinc.extra.wrappers import PyTorchWrapper
 import torch
 import torch.nn as nn
@@ -37,17 +37,3 @@ class Categorizer(Model):
             dX0 = b_X1(dX1, sgd=sgd)
             return dX0
         return X3, finish_update
-
-
-class PytorchLayerNorm(nn.Module):
-    def __init__(self, nM=300, eps=1e-6, device='cpu'):
-        super(PytorchLayerNorm, self).__init__()
-        self.a_2 = nn.Parameter(torch.ones(nM)).to(device)
-        self.b_2 = nn.Parameter(torch.zeros(nM)).to(device)
-        self.eps = eps
-        self.device = device
-
-    def forward(self, x):
-        mean = x.mean(-1, keepdim=True).to(self.device)
-        std = x.std(-1, keepdim=True).to(self.device)
-        return self.a_2 * (x - mean) / (std + self.eps) + self.b_2

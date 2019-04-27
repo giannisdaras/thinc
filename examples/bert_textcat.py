@@ -18,6 +18,7 @@ from thinc.misc import FeatureExtracter
 from thinc.api import wrap, chain, with_flatten, layerize
 from thinc.misc import Residual
 from thinc.v2v import Model
+from attention_is_all_you_need import get_dicts, pad_sequences, PositionEncode, docs2ids
 import numpy.random
 import random
 import pickle
@@ -45,74 +46,6 @@ def spacy_tokenize(X_tokenizer, X, mL=50):
     return X_out
 
 
-def PositionEncode(mL, nM):
-    positions = Model.ops.position_encode(mL, nM)
-
-    def position_encode_forward(Xs, drop=0.):
-        output = []
-        for x in Xs:
-            output.append(positions[:x.shape[0]])
-        return output, None
-    return layerize(position_encode_forward)
-
-
-@layerize
-def docs2ids(docs, drop=0.):
-    """Extract ids from a batch of (docx, docy) tuples."""
-    ops = Model.ops
-    ids = []
-    for doc in docs:
-        if "ids" not in doc.user_data:
-            doc.user_data["ids"] = ops.asarray(doc.to_array(ID), dtype='int32')
-        ids.append(doc.user_data["ids"])
-        if not (ids[-1] != 0).all():
-            raise ValueError(ids[-1])
-    return ids, None
-
-
-def set_numeric_ids(vocab, docs, force_include=("<oov>", "<eos>", "<bos>", "<cls>")):
-    """Count word frequencies and use them to set the lex.rank attribute."""
-    freqs = Counter()
-    oov_rank = 1
-    vocab["<oov>"].rank = oov_rank
-    vocab.lex_attr_getters[ID] = lambda word: oov_rank
-    rank = 2
-    for lex in vocab:
-        lex.rank = oov_rank
-    for doc in docs:
-        assert doc.vocab is vocab
-        for token in doc:
-            lex = vocab[token.orth]
-            freqs[lex.orth] += 1
-    for word in force_include:
-        lex = vocab[word]
-        lex.rank = rank
-        rank += 1
-    for orth, count in freqs.most_common():
-        lex = vocab[orth]
-        if lex.text not in force_include:
-            lex.rank = rank
-            rank += 1
-    output_docs = []
-    for doc in docs:
-        output_docs.append(Doc(vocab, words=[w.text for w in doc]))
-        for token in output_docs[-1]:
-            assert token.rank != 0, (token.text, token.vocab[token.text].rank)
-    return output_docs
-
-
-def get_dicts(vocab):
-    '''
-        Returns word2indx, indx2word
-    '''
-    word2indx = defaultdict(lambda: vocab['<oov'].rank)
-    indx2word = defaultdict(lambda: '<oov>')
-    for lex in vocab:
-        word2indx[lex.text] = lex.rank
-        indx2word[lex.rank] = lex.text
-    return word2indx, indx2word
-
-
 def create_model_input():
     def create_model_input_forward(Xs, drop=0.):
         nX = model.ops.asarray([x.shape[0] for x in Xs], dtype='i')
@@ -127,23 +60,6 @@ def create_model_input():
         return (Xs, X_mask), create_model_input_backward
     model = layerize(create_model_input_forward)
     return model
-
-
-def pad_sequences(ops, seqs_in, pad_to=None):
-    lengths = ops.asarray([len(seq) for seq in seqs_in], dtype='i')
-    nB = len(seqs_in)
-    if pad_to is None:
-        pad_to = lengths.max()
-    arr = ops.allocate((nB, int(pad_to)) + seqs_in[0].shape[1:], dtype=seqs_in[0].dtype)
-    for arr_i, seq in enumerate(seqs_in):
-        arr[arr_i, :seq.shape[0]] = ops.asarray(seq)
-
-    def unpad(padded):
-        unpadded = [None] * len(lengths)
-        for i in range(padded.shape[0]):
-            unpadded[i] = padded[i, :lengths[i]]
-        return unpadded
-    return arr, unpad
 
 
 def get_loss(Yh, Y):

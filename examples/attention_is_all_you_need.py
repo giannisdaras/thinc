@@ -148,6 +148,7 @@ def set_numeric_ids(vocab, docs, nTGT=0, force_include=("<oov>", "<eos>", "<bos>
             assert token.rank != 0, (token.text, token.vocab[token.text].rank)
     return output_docs
 
+
 def get_dicts(vocab):
     '''
         Returns word2indx, indx2word
