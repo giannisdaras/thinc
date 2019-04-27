@@ -47,6 +47,6 @@ class PytorchLayerNorm(nn.Module):
         self.eps = eps
 
     def forward(self, x):
-        mean = x.mean(-1, keepdim=True)
-        std = x.std(-1, keepdim=True)
+        mean = x.mean(-1, keepdim=True).to(device)
+        std = x.std(-1, keepdim=True).to(device)
         return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
