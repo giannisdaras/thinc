@@ -133,8 +133,8 @@ def pad_sequences(ops, seqs_in, pad_to=None):
     lengths = ops.asarray([len(seq) for seq in seqs_in], dtype='i')
     nB = len(seqs_in)
     if pad_to is None:
-        pad_to = int(lengths.max())
-    arr = ops.allocate((nB, pad_to) + seqs_in[0].shape[1:], dtype=seqs_in[0].dtype)
+        pad_to = lengths.max()
+    arr = ops.allocate((nB, int(pad_to)) + seqs_in[0].shape[1:], dtype=seqs_in[0].dtype)
     for arr_i, seq in enumerate(seqs_in):
         arr[arr_i, :seq.shape[0]] = ops.asarray(seq)
 
