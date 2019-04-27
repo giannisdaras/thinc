@@ -12,14 +12,15 @@ import torch.nn as nn
 
 
 class Categorizer(Model):
-    def __init__(self, nS=12, nM=768, nH=12, nO=2):
+    def __init__(self, nS=12, nM=768, nH=12, nO=2, device='cpu'):
         Model.__init__(self)
         self.nM = nM
         self.nO = nO
         self.nS = nS
         self.enc = clone(EncoderLayer(nM=nM, nH=nH), nS)
         self.softmax = with_reshape(Softmax(nI=nM, nO=nO))
-        self.norm = PyTorchWrapper(PytorchLayerNorm(nM=nM))
+        self.norm = PyTorchWrapper(PytorchLayerNorm(nM=nM, device=device))
+        self.device = device
         self.layers_ = [self.enc]
 
     def begin_update(self, inputs, drop=0.0):
@@ -39,10 +40,10 @@ class Categorizer(Model):
 
 
 class PytorchLayerNorm(nn.Module):
-    def __init__(self, nM=300, eps=1e-6):
+    def __init__(self, nM=300, eps=1e-6, device='cpu'):
         super(PytorchLayerNorm, self).__init__()
-        self.a_2 = nn.Parameter(torch.ones(nM))
-        self.b_2 = nn.Parameter(torch.zeros(nM))
+        self.a_2 = nn.Parameter(torch.ones(nM)).to(device)
+        self.b_2 = nn.Parameter(torch.zeros(nM)).to(device)
         self.eps = eps
 
     def forward(self, x):

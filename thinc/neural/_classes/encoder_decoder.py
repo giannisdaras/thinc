@@ -20,7 +20,7 @@ import torch.nn.functional as F
 
 
 class EncoderDecoder(Model):
-    def __init__(self, nS=1, nH=6, nM=300, nTGT=10000):
+    def __init__(self, nS=1, nH=6, nM=300, nTGT=10000, device='cpu'):
         '''
         EncoderDecoder consists of an encoder stack, a decoder stack and an
         output layer which is a linear + softmax.
@@ -35,9 +35,10 @@ class EncoderDecoder(Model):
         self.nH = nH
         self.nM = nM
         self.nTGT = nTGT
-        self.enc = clone(EncoderLayer(nM=nM, nH=nH), nS)
-        self.norm = PyTorchWrapper(PytorchLayerNorm(nM=nM))
-        self.dec = clone(DecoderLayer(nM=nM, nH=nH), nS)
+        self.device = device
+        self.enc = clone(EncoderLayer(nM=nM, nH=nH, device=device), nS)
+        self.norm = PyTorchWrapper(PytorchLayerNorm(nM=nM, device=device))
+        self.dec = clone(DecoderLayer(nM=nM, nH=nH, device=device), nS)
         self.proj = with_reshape(Softmax(nO=nTGT, nI=nM))
         self._layers = [self.enc, self.dec, self.proj]
 
@@ -67,10 +68,10 @@ class EncoderDecoder(Model):
 
 
 class PytorchLayerNorm(nn.Module):
-    def __init__(self, nM=300, eps=1e-6):
+    def __init__(self, nM=300, eps=1e-6, device='cpu'):
         super(PytorchLayerNorm, self).__init__()
-        self.a_2 = nn.Parameter(torch.ones(nM))
-        self.b_2 = nn.Parameter(torch.zeros(nM))
+        self.a_2 = nn.Parameter(torch.ones(nM)).to(device)
+        self.b_2 = nn.Parameter(torch.zeros(nM)).to(device)
         self.eps = eps
 
     def forward(self, x):
@@ -80,11 +81,11 @@ class PytorchLayerNorm(nn.Module):
 
 
 class EncoderLayer(Model):
-    def __init__(self, nM=300, nH=6):
+    def __init__(self, nM=300, nH=6, device='cpu'):
         Model.__init__(self)
         self.attn = MultiHeadedAttention(nM=nM, nH=nH)
         self.ffd = PositionwiseFeedForward(nM, nM)
-        self.norm = PyTorchWrapper(PytorchLayerNorm(nM))
+        self.norm = PyTorchWrapper(PytorchLayerNorm(nM, device=device))
         self.nM = nM
         self.layers_ = [self.attn, self.ffd, self.norm]
 
@@ -114,11 +115,11 @@ class EncoderLayer(Model):
 
 
 class DecoderLayer(Model):
-    def __init__(self, nM=300, nH=6):
+    def __init__(self, nM=300, nH=6, device='cpu'):
         Model.__init__(self)
         self.y_attn = MultiHeadedAttention(nM=nM, nH=nH)
         self.x_attn = MultiHeadedAttention(nM=nM, nH=nH)
-        self.norm = PyTorchWrapper(PytorchLayerNorm(nM))
+        self.norm = PyTorchWrapper(PytorchLayerNorm(nM, device=device))
         self.ffd = PositionwiseFeedForward(nM, nM)
         self.layers_ = [self.norm, self.y_attn, self.x_attn, self.ffd]
 
