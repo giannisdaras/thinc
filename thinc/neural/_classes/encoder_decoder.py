@@ -76,9 +76,10 @@ class PytorchLayerNorm(nn.Module):
         self.device = device
 
     def forward(self, x):
-        mean = x.mean(-1, keepdim=True).to(self.device)
-        std = x.std(-1, keepdim=True).to(self.device)
-        return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
+        mean = x.mean(-1, keepdim=True).float().to(self.device)
+        std = x.std(-1, keepdim=True).float().to(self.device)
+        x_ = x.float()
+        return self.a_2 * (x_ - mean) / (std + self.eps) + self.b_2
 
 
 class EncoderLayer(Model):
