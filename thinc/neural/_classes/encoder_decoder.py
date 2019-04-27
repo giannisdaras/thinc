@@ -70,15 +70,14 @@ class EncoderDecoder(Model):
 class PytorchLayerNorm(nn.Module):
     def __init__(self, nM=300, eps=1e-6, device='cpu'):
         super(PytorchLayerNorm, self).__init__()
-        self.a_2 = nn.Parameter(torch.ones(nM)).to(device)
-        self.b_2 = nn.Parameter(torch.zeros(nM)).to(device)
+        self.a_2 = nn.Parameter(torch.ones(nM).to(device))
+        self.b_2 = nn.Parameter(torch.zeros(nM).to(device))
         self.eps = eps
         self.device = device
 
     def forward(self, x):
-        mean = x.mean(-1, keepdim=True).float().to(self.device)
-        std = x.std(-1, keepdim=True).float().to(self.device)
-        x_ = x.float()
+        mean = x.mean(-1, keepdim=True).to(self.device)
+        std = x.std(-1, keepdim=True).to(self.device)
         return self.a_2 * (x_ - mean) / (std + self.eps) + self.b_2
 
 
