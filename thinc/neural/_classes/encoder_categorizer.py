@@ -17,7 +17,7 @@ class Categorizer(Model):
         self.nM = nM
         self.nO = nO
         self.nS = nS
-        self.enc = clone(EncoderLayer(nM=nM, nH=nH), nS)
+        self.enc = clone(EncoderLayer(nM=nM, nH=nH, device=device), nS)
         self.softmax = with_reshape(Softmax(nI=nM, nO=nO))
         self.norm = PyTorchWrapper(PytorchLayerNorm(nM=nM, device=device))
         self.device = device
