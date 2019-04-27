@@ -45,13 +45,14 @@ class PyTorchWrapper(Model):
         self._optimizer = None
         self.conf = conf
 
-    def begin_update(self, x_data, drop=0.0):
+    def begin_update(self, x_data, drop=0.0, **kwargs):
         """Return the output of the wrapped PyTorch model for the given input,
         along with a callback to handle the backward pass.
         """
         if self.conf is None:
             x_var = torch.autograd.Variable(xp2torch(x_data), requires_grad=True)
-            y_var = self._model(x_var)
+            y_var = self._model(x_var, **kwargs)
+
             def backward_pytorch(dy_data, sgd=None):
                 dy_var = xp2torch(dy_data)
                 torch.autograd.backward((y_var,), grad_tensors=(dy_var,))
@@ -87,7 +88,7 @@ class PyTorchWrapper(Model):
                 torch.autograd.Variable(xp2torch(x_data[i]), requires_grad=True)
                 for i, grad in enumerate(i_grad)]
 
-            y_var = self._model(x_var)
+            y_var = self._model(x_var, **kwargs)
 
             ''' Tensors to numpy arrays '''
             if o_xp is not None:
