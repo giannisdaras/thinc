@@ -27,16 +27,15 @@ class Categorizer(Model):
         (X1, _,), b_X1 = self.enc.begin_update((X0, Xmask))
         X2, b_X2 = self.norm.begin_update(X1)
         X3, b_X3 = self.softmax.begin_update(X2)
-        X4 = X3[:, 0, :]
 
-        def finish_update(dX4, sgd=None):
-            dX3 = Model.ops.xp.zeros((X3.shape))
-            dX3[:, 0, :] = dX4
+        def finish_update(dX, sgd=None):
+            dX3 = Model.ops.xp.zeros((X0.shape[0], X0.shape[1], self.nO))
+            dX3[:, 0, :] = dX
             dX2 = b_X3(dX3, sgd=sgd)
             dX1 = b_X2(dX2, sgd=sgd)
             dX0 = b_X1(dX1, sgd=sgd)
             return dX0
-        return X4, finish_update
+        return X3, finish_update
 
 
 class PytorchLayerNorm(nn.Module):
