@@ -296,6 +296,9 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
     if use_gpu != -1:
         # TODO: Make specific to different devices, e.g. 1 vs 0
         spacy.require_gpu()
+        device = 'cuda'
+    else:
+        device = 'cpu'
     train, dev, test = get_iwslt()
     train_X, train_Y = zip(*train)
     dev_X, dev_Y = zip(*dev)
@@ -339,7 +342,7 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
             )
             >> apply_layers(Residual(position_encode), Residual(position_encode))
             >> create_batch()
-            >> EncoderDecoder(nS=nS, nH=nH, nTGT=nTGT, nM=nM)
+            >> EncoderDecoder(nS=nS, nH=nH, nTGT=nTGT, nM=nM, device=device)
         )
 
     losses = [0.]

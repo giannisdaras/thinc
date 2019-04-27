@@ -190,6 +190,9 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
     if use_gpu != -1:
         # TODO: Make specific to different devices, e.g. 1 vs 0
         spacy.require_gpu()
+        device = 'cuda'
+    else:
+        device = 'cpu'
 
     ''' Read dataset '''
     nlp = spacy.load('en_core_web_sm')
@@ -216,7 +219,7 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
             >> with_flatten(FancyEmbed(nM, 5000, cols=embed_cols))
             >> Residual(position_encode)
             >> create_model_input()
-            >> Categorizer(nM=nM, nS=nS, nH=nH)
+            >> Categorizer(nM=nM, nS=nS, nH=nH, device=device)
         )
 
     losses = [0.]
