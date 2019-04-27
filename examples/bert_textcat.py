@@ -149,6 +149,7 @@ def pad_sequences(ops, seqs_in, pad_to=None):
 def get_loss(Yh, Y):
     Y = [to_categorical(y, nb_classes=2) for y in Y]
     Y = Model.ops.xp.asarray(Y)[:, 0, :]
+    Yh = Yh[:, 0, :]
     is_accurate = (Yh.argmax(axis=-1) == Y.argmax(axis=-1))
     dYh = Yh - Y
     return dYh, is_accurate.sum()
@@ -194,7 +195,7 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
     nlp = spacy.load('en_core_web_sm')
     for control_token in ("<eos>", "<bos>", "<pad>", "<cls>"):
         nlp.tokenizer.add_special_case(control_token, [{ORTH: control_token}])
-    train, dev = imdb()
+    train, dev = imdb(limit=lim)
     print('Loaded imdb dataset')
     train = train[:lim]
     dev = dev[:lim]
