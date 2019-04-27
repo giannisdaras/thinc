@@ -46,6 +46,37 @@ def spacy_tokenize(X_tokenizer, X, mL=50):
     return X_out
 
 
+def set_numeric_ids(vocab, docs, force_include=("<oov>", "<eos>", "<bos>", "<cls>")):
+    """Count word frequencies and use them to set the lex.rank attribute."""
+    freqs = Counter()
+    oov_rank = 1
+    vocab["<oov>"].rank = oov_rank
+    vocab.lex_attr_getters[ID] = lambda word: oov_rank
+    rank = 2
+    for lex in vocab:
+        lex.rank = oov_rank
+    for doc in docs:
+        assert doc.vocab is vocab
+        for token in doc:
+            lex = vocab[token.orth]
+            freqs[lex.orth] += 1
+    for word in force_include:
+        lex = vocab[word]
+        lex.rank = rank
+        rank += 1
+    for orth, count in freqs.most_common():
+        lex = vocab[orth]
+        if lex.text not in force_include:
+            lex.rank = rank
+            rank += 1
+    output_docs = []
+    for doc in docs:
+        output_docs.append(Doc(vocab, words=[w.text for w in doc]))
+        for token in output_docs[-1]:
+            assert token.rank != 0, (token.text, token.vocab[token.text].rank)
+    return output_docs
+
+
 def create_model_input():
     def create_model_input_forward(Xs, drop=0.):
         nX = model.ops.asarray([x.shape[0] for x in Xs], dtype='i')
