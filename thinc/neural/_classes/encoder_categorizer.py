@@ -30,7 +30,7 @@ class Categorizer(Model):
         X3, b_X3 = self.softmax.begin_update(X2)
 
         def finish_update(dX, sgd=None):
-            dX3 = Model.ops.xp.zeros((X0.shape[0], X0.shape[1], self.nO))
+            dX3 = Model.ops.xp.zeros((X0.shape[0], X0.shape[1], self.nO)).astype("float32")
             dX3[:, 0, :] = dX
             dX2 = b_X3(dX3, sgd=sgd)
             dX1 = b_X2(dX2, sgd=sgd)
