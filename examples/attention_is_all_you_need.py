@@ -50,7 +50,7 @@ class Batch:
         for i, length in enumerate(nX):
             self.X_mask[i, :, :int(length)] = 1.0
         for i, length in enumerate(nY):
-            for j in range(length):
+            for j in range(int(length)):
                 self.y_mask[i, j, :j+1] = 1.0
             self.y_mask[i, int(length):, :int(length)] = 1.0
 
