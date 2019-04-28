@@ -48,11 +48,11 @@ class Batch:
         self.X_mask = Model.ops.allocate((self.nB, self.nL, self.nL))
         self.y_mask = Model.ops.allocate((self.nB, self.nL, self.nL))
         for i, length in enumerate(nX):
-            self.X_mask[i, :, :length] = 1.0
+            self.X_mask[i, :, :int(length)] = 1.0
         for i, length in enumerate(nY):
             for j in range(length):
                 self.y_mask[i, j, :j+1] = 1.0
-            self.y_mask[i, length:, :length] = 1.0
+            self.y_mask[i, int(length):, :int(length)] = 1.0
 
 
 def spacy_tokenize(X_tokenizer, Y_tokenizer, X, Y, mL=50):
