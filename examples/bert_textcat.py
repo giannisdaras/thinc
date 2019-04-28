@@ -88,7 +88,7 @@ def create_model_input():
             dXs = unpad_dXs(dXs)
             return dXs
 
-        return (Xs, X_mask), create_model_input_backward
+        return (Xs.astype("float32"), X_mask), create_model_input_backward
     model = layerize(create_model_input_forward)
     return model
 
