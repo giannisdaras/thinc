@@ -295,7 +295,7 @@ def FancyEmbed(width, rows, cols=(ORTH, SHAPE, PREFIX, SUFFIX)):
     load_name=("Name of file to load from disk. Load option must be enabled")
 )
 def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
-        nM=300, mL=20, nTGT=3500, save=False, save_name="model.pkl"):
+        nM=300, mL=20, nTGT=3500, save=False, save_name="model.pkl", load_name="model.pkl"):
     if use_gpu != -1:
         # TODO: Make specific to different devices, e.g. 1 vs 0
         spacy.require_gpu()
