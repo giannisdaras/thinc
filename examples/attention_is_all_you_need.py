@@ -191,7 +191,7 @@ def create_batch():
             return dXs, dYs
 
         batch = Batch((Xs, Ys), (nX, nY))
-        return (batch.X, batch.X_mask, batch.y, batch.y_mask), create_batch_backward
+        return (batch.X.astype("float32"), batch.X_mask, batch.y.astype("float32"), batch.y_mask), create_batch_backward
     model = layerize(create_batch_forward)
     return model
 
