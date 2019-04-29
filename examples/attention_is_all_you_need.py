@@ -290,7 +290,9 @@ def FancyEmbed(width, rows, cols=(ORTH, SHAPE, PREFIX, SUFFIX)):
     mL=("Max length sentence in dataset", "option", "mL", int),
     nTGT=("Vocabulary size", "option", "nTGT", int),
     save=("Save model to disk", "option", "save", bool),
-    save_name=("Name of file saved to disk. Save option must be enabled")
+    load=("Load model from disk", "option", "load", bool),
+    save_name=("Name of file saved to disk. Save option must be enabled"),
+    load_name=("Name of file to load from disk. Load option must be enabled")
 )
 def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
         nM=300, mL=20, nTGT=3500, save=False, save_name="model.pkl"):
@@ -331,20 +333,23 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
     de_word2indx, de_indx2word = get_dicts(nlp_de.vocab)
     nTGT += 1
 
-    with Model.define_operators({">>": chain}):
-        embed_cols = [ORTH, SHAPE, PREFIX, SUFFIX]
-        extractor = FeatureExtracter(attrs=embed_cols)
-        position_encode = PositionEncode(mL, nM)
-        model = (
-            apply_layers(extractor, extractor)
-            >> apply_layers(
-                with_flatten(FancyEmbed(nM, 5000, cols=embed_cols)),
-                with_flatten(FancyEmbed(nM, 5000, cols=embed_cols)),
+    if not load:
+        with Model.define_operators({">>": chain}):
+            embed_cols = [ORTH, SHAPE, PREFIX, SUFFIX]
+            extractor = FeatureExtracter(attrs=embed_cols)
+            position_encode = PositionEncode(mL, nM)
+            model = (
+                apply_layers(extractor, extractor)
+                >> apply_layers(
+                    with_flatten(FancyEmbed(nM, 5000, cols=embed_cols)),
+                    with_flatten(FancyEmbed(nM, 5000, cols=embed_cols)),
+                )
+                >> apply_layers(Residual(position_encode), Residual(position_encode))
+                >> create_batch()
+                >> EncoderDecoder(nS=nS, nH=nH, nTGT=nTGT, nM=nM, device=device)
             )
-            >> apply_layers(Residual(position_encode), Residual(position_encode))
-            >> create_batch()
-            >> EncoderDecoder(nS=nS, nH=nH, nTGT=nTGT, nM=nM, device=device)
-        )
+    else:
+        model = Model.from_disk(load_name)
 
     losses = [0.]
     train_accuracies = [0.]
