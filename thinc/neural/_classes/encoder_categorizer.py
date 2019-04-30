@@ -28,6 +28,7 @@ class Categorizer(Model):
         (X1, _,), b_X1 = self.enc.begin_update((X0, Xmask))
         X2, b_X2 = self.norm.begin_update(X1)
         X3, b_X3 = self.softmax.begin_update(X2)
+        X4 = X3[:, 0, :]
 
         def finish_update(dX, sgd=None):
             dX3 = Model.ops.xp.zeros((X0.shape[0], X0.shape[1], self.nO)).astype("float32")
