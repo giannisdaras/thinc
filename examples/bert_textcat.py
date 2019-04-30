@@ -110,15 +110,6 @@ def FancyEmbed(width, rows, cols=(ORTH, SHAPE, PREFIX, SUFFIX)):
     return chain(concatenate(*tables), Maxout(width, width*len(tables), pieces=3))
 
 
-def transform_data(Y):
-    Y_ = []
-    for i in Y:
-        if i == 0:
-            Y_.append(["NEGATIVE"])
-        elif i == 1:
-            Y_.append(["POSITIVE"])
-    return Y_
-
 @plac.annotations(
     nH=("number of heads of the multiheaded attention", "option", "nH", int),
     dropout=("model dropout", "option", "d", float),
