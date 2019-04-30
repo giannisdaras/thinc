@@ -87,14 +87,14 @@ class Encoder(Model):
 
     def begin_update(self, input):
         X0, mask = input
-        X1, b_X1 = self.stack.begin_update(X0)
+        X1, b_X1 = self.stack.begin_update((X0, mask))
         X2, b_X2 = self.norm.begin_update(X1)
 
         def finish_update(dX2):
             dX1 = b_X2(dX2)
             dX0 = b_X1(dX1)
             return dX0
-        return X2, finish_update
+        return (X2, mask), finish_update
 
 
 class EncoderLayer(Model):
