@@ -50,7 +50,7 @@ class EncoderDecoder(Model):
         Input: nB x nL x nM
         '''
         X0, Xmask, Y0, Ymask = inputs
-        (X1, _,), backprop_encode = self.enc.begin_update((X0, Xmask))
+        X1, backprop_encode = self.enc.begin_update((X0, Xmask))
         (Y1, _, _, _), backprop_decode = self.dec.begin_update((Y0, X1, Xmask, Ymask))
         Y2, b_Y2 = self.norm.begin_update(Y1)
         word_probs, backprop_output = self.proj.begin_update(Y2, drop=drop)
@@ -87,14 +87,14 @@ class Encoder(Model):
 
     def begin_update(self, input):
         X0, mask = input
-        X1, b_X1 = self.stack.begin_update((X0, mask))
+        (X1, _), b_X1 = self.stack.begin_update((X0, mask))
         X2, b_X2 = self.norm.begin_update(X1)
 
         def finish_update(dX2):
             dX1 = b_X2(dX2)
             dX0 = b_X1(dX1)
             return dX0
-        return (X2, mask), finish_update
+        return X2, finish_update
 
 
 class EncoderLayer(Model):
