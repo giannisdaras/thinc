@@ -112,7 +112,7 @@ def FancyEmbed(width, rows, cols=(ORTH, SHAPE, PREFIX, SUFFIX)):
 @plac.annotations(
     nH=("number of heads of the multiheaded attention", "option", "nH", int),
     dropout=("model dropout", "option", "d", float),
-    nS=('Number of encodersin the enc stack.', "option", "nS", int),
+    nS=('Number of encoders in the enc stack.', "option", "nS", int),
     nB=('Batch size for the training', "option", "nB", int),
     nE=('Number of epochs for the training', "option", "nE", int),
     use_gpu=("Which GPU to use. -1 for CPU", "option", "g", int),
