@@ -36,7 +36,7 @@ class Categorizer(Model):
         def finish_update(dX5, sgd=None):
             dX4 = b_X5(dX5, sgd=sgd)
             dX3 = b_X4(dX4, sgd=sgd)
-            dX2 = b_X3(dX3, sgd=sgd)
+            dX2 = b_X3(dX3)
             dX1 = b_X2(dX2, sgd=sgd)
             dX0 = b_X1(dX1, sgd=sgd)
             return dX0
