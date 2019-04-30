@@ -10,23 +10,14 @@ from spacy.tokens import Doc
 from spacy.attrs import ID, ORTH, SHAPE, PREFIX, SUFFIX
 from thinc.extra.datasets import get_iwslt
 from thinc.loss import categorical_crossentropy
-from thinc.neural.util import get_array_module
-from spacy._ml import link_vectors_to_models
 from thinc.neural.util import to_categorical, minibatch
 from thinc.neural._classes.encoder_decoder import EncoderDecoder
-from thinc.neural._classes.embed import Embed
+from thinc.i2v import HashEmbed
+from thinc.v2v import Maxout
 from thinc.misc import FeatureExtracter
-from thinc.api import wrap, chain, with_flatten, layerize
+from thinc.api import wrap, chain, with_flatten, layerize, concatenate
 from thinc.misc import Residual
 from thinc.v2v import Model
-from timeit import default_timer as timer
-import numpy.random
-import random
-from thinc.extra.wrappers import PyTorchWrapper
-from spacy.lang.en import English
-from spacy.lang.de import German
-import pickle
-import sys
 
 random.seed(0)
 numpy.random.seed(0)
@@ -269,10 +260,8 @@ def visualize(model, X0, Y0):
     sentY = get_padded_sentence(Y0, X1)
     last_layer([(X1, Xmask), (Y1, Ymask), (sentX, sentY)])
 
+
 def FancyEmbed(width, rows, cols=(ORTH, SHAPE, PREFIX, SUFFIX)):
-    from thinc.i2v import HashEmbed
-    from thinc.v2v import Maxout
-    from thinc.api import chain, concatenate
     tables = [HashEmbed(width, rows, column=i) for i in range(len(cols))]
     return chain(concatenate(*tables), Maxout(width, width*len(tables), pieces=3))
 
