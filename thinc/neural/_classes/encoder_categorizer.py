@@ -37,7 +37,7 @@ class Categorizer(Model):
             dX1 = b_X2(dX2, sgd=sgd)
             dX0 = b_X1(dX1, sgd=sgd)
             return dX0
-        return X3, finish_update
+        return X4, finish_update
 
 
 class PytorchSlicer(nn.Module):
