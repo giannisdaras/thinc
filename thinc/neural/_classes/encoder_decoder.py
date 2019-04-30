@@ -36,7 +36,7 @@ class EncoderDecoder(Model):
         self.nM = nM
         self.nTGT = nTGT
         self.device = device
-        self.enc = clone(EncoderLayer(nM=nM, nH=nH, device=device), nS)
+        self.enc = Encoder(nM=nM, nH=nH, device=device, nS=nS)
         self.norm = PyTorchWrapper(PytorchLayerNorm(nM=nM, device=device))
         self.dec = clone(DecoderLayer(nM=nM, nH=nH, device=device), nS)
         self.proj = with_reshape(Softmax(nO=nTGT, nI=nM))
@@ -51,8 +51,7 @@ class EncoderDecoder(Model):
         '''
         X0, Xmask, Y0, Ymask = inputs
         (X1, _,), backprop_encode = self.enc.begin_update((X0, Xmask))
-        X2, b_X2 = self.norm.begin_update(X1)
-        (Y1, _, _, _), backprop_decode = self.dec.begin_update((Y0, X2, Xmask, Ymask))
+        (Y1, _, _, _), backprop_decode = self.dec.begin_update((Y0, X1, Xmask, Ymask))
         Y2, b_Y2 = self.norm.begin_update(Y1)
         word_probs, backprop_output = self.proj.begin_update(Y2, drop=drop)
 
@@ -60,8 +59,7 @@ class EncoderDecoder(Model):
             dY2 = backprop_output(d_word_probs, sgd=sgd)
             dY1 = b_Y2(dY2, sgd=sgd)
             zeros = Model.ops.xp.zeros(X0.shape, dtype=Model.ops.xp.float32)
-            dY0, dX2 = backprop_decode((dY1, zeros), sgd=sgd)
-            dX1 = b_X2(dX2, sgd=sgd)
+            dY0, dX1 = backprop_decode((dY1, zeros), sgd=sgd)
             dX0 = backprop_encode(dX1, sgd=sgd)
             return (dX0, dY0)
         return (word_probs, Xmask), finish_update
@@ -79,6 +77,24 @@ class PytorchLayerNorm(nn.Module):
         mean = x.mean(-1, keepdim=True).to(self.device)
         std = x.std(-1, keepdim=True).to(self.device)
         return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
+
+
+class Encoder(Model):
+    def __init__(self, nM=300, nH=6, nS=6, device='cpu'):
+        Model.__init__(self)
+        self.stack = clone(EncoderLayer(nM=nM, nH=nH, device=device), nS)
+        self.norm = PyTorchWrapper(PytorchLayerNorm(nM=nM, device=device))
+
+    def begin_update(self, input):
+        X0, mask = input
+        X1, b_X1 = self.stack.begin_update(X0)
+        X2, b_X2 = self.norm.begin_update(X1)
+
+        def finish_update(dX2):
+            dX1 = b_X2(dX2)
+            dX0 = b_X1(dX1)
+            return dX0
+        return X2, finish_update
 
 
 class EncoderLayer(Model):
