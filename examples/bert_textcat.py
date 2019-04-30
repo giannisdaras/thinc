@@ -96,7 +96,6 @@ def create_model_input():
 def get_loss(Yh, Y):
     Y = [to_categorical(y, nb_classes=2) for y in Y]
     Y = Model.ops.xp.asarray(Y)[:, 0, :]
-    Yh = Yh[:, 0, :]
     is_accurate = (Yh.argmax(axis=-1) == Y.argmax(axis=-1))
     dYh = Yh - Y
     return dYh, is_accurate.sum()
@@ -124,7 +123,7 @@ def FancyEmbed(width, rows, cols=(ORTH, SHAPE, PREFIX, SUFFIX)):
     save_name=("Name of file saved to disk. Save option must be enabled")
 )
 def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
-        nM=300, mL=100, save=False, save_name="model.pkl"):
+         nM=300, mL=100, save=False, save_name="model.pkl"):
     if use_gpu != -1:
         # TODO: Make specific to different devices, e.g. 1 vs 0
         spacy.require_gpu()
@@ -172,7 +171,6 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
         for batch in minibatch(zip(dev_X, dev_Y), size=1024):
             X, Y = zip(*batch)
             Yh = model(X)
-            total = len(X)
             L, C = get_loss(Yh, Y)
             correct += C
             dev_loss[-1] += (L**2).sum()
@@ -200,7 +198,6 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
         other_pipes = [pipe for pipe in nlp.pipe_names if pipe != "textcat"]
         for X, Y in trainer.iterate(train_X, train_Y):
             Yh, backprop = model.begin_update(X)
-            total = len(X)
             dYh, C = get_loss(Yh, Y)
             backprop(dYh, sgd=optimizer)
             losses[-1] += (dYh**2).sum()
