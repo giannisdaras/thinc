@@ -90,9 +90,9 @@ class Encoder(Model):
         (X1, _), b_X1 = self.stack.begin_update((X0, mask))
         X2, b_X2 = self.norm.begin_update(X1)
 
-        def finish_update(dX2):
-            dX1 = b_X2(dX2)
-            dX0 = b_X1(dX1)
+        def finish_update(dX2, sgd=None):
+            dX1 = b_X2(dX2, sgd=sgd)
+            dX0 = b_X1(dX1, sgd=sgd)
             return dX0
         return X2, finish_update
 
