@@ -31,7 +31,7 @@ numpy.random.seed(0)
 def random_mask(X0, nlp, indx2word, mL):
     words = [x.text.split(' ') for x in X0]
     # nC: number of changed tokens
-    nC = [0.15 // len(x) for x in words]
+    nC = [int(0.15 * len(x)) for x in words]
     indices = [Model.ops.xp.random.randint(0, len(x), c) for x, c in zip(words, nC)]
     for sent_indx in range(len(X0)):
         for indx in indices[sent_indx]:
@@ -42,14 +42,17 @@ def random_mask(X0, nlp, indx2word, mL):
                 random_word = indx2word[Model.ops.xp.random.randint(0, len(nlp.vocab), 1)]
                 word[indx] = random_word
     words = [' '.join(x) for x in words]
-    X1 = spacy_tokenize(nlp.tokenizer, words, mL=mL)
+    X1 = spacy_tokenize(nlp.tokenizer, words, mL=mL, special_token=False)
     return X1, indices
 
 
-def spacy_tokenize(X_tokenizer, X, mL=50):
+def spacy_tokenize(X_tokenizer, X, special_token=True, mL=50):
     X_out = []
     for x in X:
-        xdoc = X_tokenizer('<cls> ' + x.strip())
+        if special_token:
+            xdoc = X_tokenizer('<cls> ' + x.strip())
+        else:
+            xdoc = X_tokenizer(x.strip())
         if len(xdoc) < mL:
             X_out.append(xdoc)
     return X_out
