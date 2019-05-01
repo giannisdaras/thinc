@@ -29,6 +29,8 @@ def random_mask(X0, nlp, indx2word, vocab, mL):
     nC = int(0.15 * max([len(x) for x in X0]))
     indices = \
         [Model.ops.xp.random.randint(0, len(x), nC) for x in X0]
+    rows = np.arange(0, len(X0))
+    cols = []
     docs = []
     for sent_indx in range(len(X0)):
         words = [w.text for w in X0[sent_indx]]
@@ -42,7 +44,7 @@ def random_mask(X0, nlp, indx2word, vocab, mL):
                 random_word = indx2word[vocab_indx]
                 word = random_word
         docs.append(Doc(vocab, words=words))
-    return docs, indices
+    return docs, mask
 
 
 def spacy_tokenize(X_tokenizer, X, mL=50):
@@ -108,9 +110,22 @@ def get_loss(Xh, X_docs, indices):
     X, _ = pad_sequences(Model.ops, X)
 
     ''' Loss calculation '''
-    import ipdb; ipdb.set_trace()
+    # Xh: nB, nL. nTGT
+    # X: nB, nL, nTGT
+    # dXh: nB, nL, nTGT
+    # indices: nB, nK
     dXh = Model.ops.xp.zeros(Xh.shape)
-    return dXh, is_accurate.sum(), is_accurate.sum() + is_not_accurate.sum()
+    indices = Model.ops.xp.vstack(indices)
+    accurate_sum = 0
+    inaccurate_sum = 0
+    for i in range(X.shape[0]):
+        for index in indices[i]:
+            dXh[i, index, :] = Xh - X
+            if Xh[i, index, :].argmax(axis=-1) == X[i, index, :]:
+                accurate_sum += 1
+            else:
+                inaccurate_sum += 1
+    return dXh, accurate_sum, accurate_sum + inaccurate_sum
 
 
 @plac.annotations(
