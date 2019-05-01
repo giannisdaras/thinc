@@ -30,16 +30,19 @@ def random_mask(X0, nlp, indx2word, vocab, mL):
     docs = []
     for sent_indx in range(len(X0)):
         words = [w.text for w in X0[sent_indx]]
-        for word in words:
+        new_words = []
+        for i, word in enumerate(words):
             dice = int(Model.ops.xp.random.randint(1, 11, 1))
-            if dice <= 8:
-                word = '<mask>'
-            elif dice == 9:
+            if i not in indices[sent_indx] or (dice == 10):
+                new_words.append(word)
+            elif dice <= 8:
+                new_words.append('<mask>')
+            else:
                 vocab_indx = \
                     int(Model.ops.xp.random.randint(0, len(nlp.vocab), 1))
                 random_word = indx2word[vocab_indx]
-                word = random_word
-        docs.append(Doc(vocab, words=words))
+                new_words.append(random_word)
+        docs.append(Doc(vocab, words=new_words))
     return docs, indices
 
 
