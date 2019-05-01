@@ -233,7 +233,7 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
                 Xh, backprop = model.begin_update(X1)
                 dXh, C, total = get_loss(Xh, X0, indices)
                 backprop(dXh, sgd=optimizer)
-                losses[-1] += (dYh**2).sum()
+                losses[-1] += (dXh**2).sum()
                 train_accuracies[-1] += C
                 train_totals[-1] += total
         if save:
