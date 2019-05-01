@@ -117,7 +117,8 @@ def get_loss(Xh, X_docs, indices):
     dXh = Model.ops.xp.zeros(Xh.shape)
     dXh_sliced = Model.ops.xp.take(dXh, indices)
     dXh_sliced = selected_h - selected
-    Model.ops.xp.take(dXh, indices) = dXh_sliced
+    interest = Model.ops.xp.take(dXh, indices)
+    interest = dXh_sliced
     import pdb; pdb.set_trace()
     return dXh, is_accurate.sum(), is_accurate.sum() + is_not_accurate.sum()
 
