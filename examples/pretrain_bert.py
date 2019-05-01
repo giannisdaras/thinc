@@ -116,6 +116,7 @@ def get_loss(Xh, X_docs, indices):
 
     dXh = Model.ops.xp.zeros(Xh.shape)
     for i in indices:
+        import pdb; pdb.set_trace()
         dXh[i] = selected_h[i] - selected[i]
 
     return dXh, is_accurate.sum(), is_accurate.sum() + is_not_accurate.sum()
