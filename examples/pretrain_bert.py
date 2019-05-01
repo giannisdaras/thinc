@@ -26,10 +26,9 @@ numpy.random.seed(0)
 
 
 def random_mask(X0, nlp, indx2word, vocab, mL):
-    # nC: number of changed tokens
-    nC = [int(0.15 * len(x)) for x in X0]
+    nC = int(0.15*X0[0].shape[0])
     indices = \
-        [Model.ops.xp.random.randint(0, len(x), c) for x, c in zip(X0, nC)]
+        [Model.ops.xp.random.randint(0, len(x), nC) for x in X0]
     docs = []
     for sent_indx in range(len(X0)):
         words = [w.text for w in X0[sent_indx]]
