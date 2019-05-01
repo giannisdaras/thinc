@@ -89,7 +89,7 @@ def set_numeric_ids(vocab, docs, force_include=("<oov>", "<eos>", "<bos>",
     return output_docs
 
 
-def get_loss(ops, Xh, X_docs, indices):
+def get_loss(Xh, X_docs, indices):
     X_ids = docs2ids(X_docs)
     nb_classes = Xh.shape[-1]
     X = [to_categorical(y, nb_classes=nC) for y in X_ids]
