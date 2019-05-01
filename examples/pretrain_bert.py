@@ -273,7 +273,7 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
             optimizer.alpha = 0.001
             optimizer.L2 = 1e-6
             optimizer.max_grad_norm = 1.0
-            for X0 in trainer.iterate(train_X):
+            for X0, _ in trainer.iterate(train_X, train_X):
                 X1, indices = random_mask(X0, nlp, indx2word, mL)
                 Xh, backprop = model.begin_update(X1)
                 dXh, C, total = get_loss(Xh, X0, indices)
