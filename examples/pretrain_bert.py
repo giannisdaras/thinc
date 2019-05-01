@@ -109,6 +109,7 @@ def get_loss(Xh, X_docs, indices):
     X, _ = pad_sequences(Model.ops, X)
 
     ''' Loss calculation '''
+    import pdb; pdb.set_trace()
     selected_h = Model.ops.xp.take(Xh.argmax(axis=-1), indices)
     selected = Model.ops.xp.take(X.argmax(axis=-1), indices)
 
