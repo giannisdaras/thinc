@@ -8,14 +8,11 @@ from collections import Counter
 import spacy
 from spacy.tokens import Doc
 from spacy.attrs import ID, ORTH, SHAPE, PREFIX, SUFFIX
-from thinc.loss import categorical_crossentropy
 from thinc.neural.util import to_categorical, minibatch
 from thinc.neural._classes.encoder_decoder import EncoderDecoder
 from thinc.neural._classes.softmax import Softmax
-from thinc.i2v import HashEmbed
-from thinc.v2v import Maxout
 from thinc.misc import FeatureExtracter
-from thinc.api import wrap, chain, with_flatten, layerize, concatenate, with_reshape
+from thinc.api import wrap, chain, with_flatten, with_reshape
 from attention_is_all_you_need import get_dicts, pad_sequences, \
     PositionEncode, docs2ids, FancyEmbed
 from bert_textcat import create_model_input, get_mask
