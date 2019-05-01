@@ -154,27 +154,27 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
     train, dev, test = get_iwslt()
     print('Dataset loaded')
 
-    train_X, _ = zip(*train)
-    dev_X, _ = zip(*dev)
-    test_X, _ = zip(*test)
+    train, _ = zip(*train)
+    dev, _ = zip(*dev)
+    test, _ = zip(*test)
 
     train = train[:lim]
     dev = dev[:lim]
     test = test[:lim]
 
     ''' Tokenize '''
-    train_X = spacy_tokenize(nlp.tokenizer, train_X, mL=mL)
-    dev_X = spacy_tokenize(nlp.tokenizer, dev_X, mL=mL)
-    test_X = spacy_tokenize(nlp.tokenizer, test_X, mL=mL)
+    train = spacy_tokenize(nlp.tokenizer, train, mL=mL)
+    dev = spacy_tokenize(nlp.tokenizer, dev, mL=mL)
+    test = spacy_tokenize(nlp.tokenizer, test, mL=mL)
     print('Tokenization finished')
 
     ''' Set rank based on all the docs '''
-    all_docs = train_X + dev_X + test_X
+    all_docs = train + dev + test
     set_rank(nlp.vocab, all_docs, nTGT=nTGT)
 
-    train_X = set_numeric_ids(nlp.vocab, train_X)
-    dev_X = set_numeric_ids(nlp.vocab, dev_X)
-    test_X = set_numeric_ids(nlp.vocab, test_X)
+    train = set_numeric_ids(nlp.vocab, train)
+    dev = set_numeric_ids(nlp.vocab, dev)
+    test = set_numeric_ids(nlp.vocab, test)
     print('Numeric ids set')
 
     word2indx, indx2word = get_dicts(nlp.vocab)
@@ -202,7 +202,7 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
         def track_progress():
             correct = 0.
             total = 0.
-            for X0 in minibatch(dev_X, size=1024):
+            for X0 in minibatch(dev, size=1024):
                 X1, indices = random_mask(X0, nlp, indx2word, mL)
                 Xh = model(X1)
                 L, C, total = get_loss(Xh, X0, indices)
@@ -229,7 +229,7 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
             optimizer.alpha = 0.001
             optimizer.L2 = 1e-6
             optimizer.max_grad_norm = 1.0
-            for X0, _ in trainer.iterate(train_X, train_X):
+            for X0, _ in trainer.iterate(train, train):
                 X1, indices = random_mask(X0, nlp, indx2word, nlp.vocab, mL)
                 Xh, backprop = model.begin_update(X1)
                 dXh, C, total = get_loss(Xh, X0, indices)
