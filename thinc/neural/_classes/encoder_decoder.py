@@ -85,9 +85,9 @@ class Encoder(Model):
         self.stack = clone(EncoderLayer(nM=nM, nH=nH, device=device), nS)
         self.norm = PyTorchWrapper(PytorchLayerNorm(nM=nM, device=device))
 
-    def begin_update(self, input):
+    def begin_update(self, input, drop=0.0):
         X0, mask = input
-        (X1, _), b_X1 = self.stack.begin_update((X0, mask))
+        (X1, _), b_X1 = self.stack.begin_update((X0, mask), drop=0.0)
         X2, b_X2 = self.norm.begin_update(X1)
 
         def finish_update(dX2, sgd=None):
