@@ -42,7 +42,7 @@ def random_mask(X0, nlp, indx2word, mL):
                 vocab_indx = \
                     int(Model.ops.xp.random.randint(0, len(nlp.vocab), 1))
                 random_word = indx2word[vocab_indx]
-                word[indx] = random_word
+                words[indx] = random_word
     words = [' '.join(x) for x in words]
     X1 = spacy_tokenize(nlp.tokenizer, words, mL=mL, special_token=False)
     return X1, indices
