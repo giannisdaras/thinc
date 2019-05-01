@@ -9,7 +9,6 @@ import spacy
 from spacy.tokens import Doc
 from spacy.attrs import ID, ORTH, SHAPE, PREFIX, SUFFIX
 from thinc.extra.datasets import get_iwslt
-from thinc.loss import categorical_crossentropy
 from thinc.neural.util import to_categorical, minibatch
 from thinc.neural._classes.encoder_decoder import EncoderDecoder
 from thinc.i2v import HashEmbed
