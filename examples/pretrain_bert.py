@@ -85,7 +85,7 @@ def PositionEncode(mL, nM):
 
 
 def set_numeric_ids(vocab, docs, force_include=("<oov>", "<eos>", "<bos>",
-                    "<cls>", "<mask>")):
+                    "<cls>", "<mask>"), nTGT=5000):
     """Count word frequencies and use them to set the lex.rank attribute."""
     freqs = Counter()
     oov_rank = 1
@@ -108,6 +108,8 @@ def set_numeric_ids(vocab, docs, force_include=("<oov>", "<eos>", "<bos>",
         if lex.text not in force_include:
             lex.rank = rank
             rank += 1
+        if nTGT != 0 and rank >= nTGT:
+            break
     output_docs = []
     for doc in docs:
         output_docs.append(Doc(vocab, words=[w.text for w in doc]))
@@ -183,12 +185,13 @@ def get_loss(ops, Xh, X_docs, indices):
     use_gpu=("Which GPU to use. -1 for CPU", "option", "g", int),
     lim=("Number of sentences to load from dataset", "option", "l", int),
     nM=("Embeddings size", "option", "nM", int),
+    nTGT=("Vocabulary size", "option", "nTGT", int),
     mL=("Max length sentence in dataset", "option", "mL", int),
     save=("Save model to disk", "option", "save", bool),
     save_name=("Name of file saved to disk. Save option must be enabled")
 )
 def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
-         nM=300, mL=100, save=False, save_name="model.pkl"):
+         nM=300, mL=100, save=False, nTGT=5000, save_name="model.pkl"):
     if use_gpu != -1:
         # TODO: Make specific to different devices, e.g. 1 vs 0
         spacy.require_gpu()
@@ -215,9 +218,9 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
     dev_X = spacy_tokenize(nlp.tokenizer, dev_X, mL=mL)
     test_X = spacy_tokenize(nlp.tokenizer, test_X, mL=mL)
 
-    train_X = set_numeric_ids(nlp.vocab, train_X)
-    dev_X = set_numeric_ids(nlp.vocab, dev_X)
-    test_X = set_numeric_ids(nlp.vocab, test_X)
+    train_X = set_numeric_ids(nlp.vocab, train_X, nTGT=nTGT)
+    dev_X = set_numeric_ids(nlp.vocab, dev_X, nTGT=nTGT)
+    test_X = set_numeric_ids(nlp.vocab, test_X, nTGT=nTGT)
 
     word2indx, indx2word = get_dicts(nlp.vocab)
 
