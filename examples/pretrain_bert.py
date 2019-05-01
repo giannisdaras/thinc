@@ -49,7 +49,7 @@ def get_dicts(vocab):
 def random_mask(X0, nlp, indx2word, mL):
     words = [x.text.split(' ') for x in X0]
     # nC: number of changed tokens
-    nC = [0.15 * // len(x) for x in words]
+    nC = [0.15 // len(x) for x in words]
     indices = [Model.ops.xp.random.randint(0, len(x), c) for x, c in zip(words, nC)]
     for sent_indx in range(len(X0)):
         for indx in indices[sent_indx]:
