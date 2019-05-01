@@ -29,6 +29,7 @@ def random_mask(X0, nlp, indx2word, vocab, mL):
     nC = int(0.15 * max([len(x) for x in X0]))
     indices = \
         [Model.ops.xp.random.randint(0, len(x), nC) for x in X0]
+    docs = []
     for sent_indx in range(len(X0)):
         words = [w.text for w in X0[sent_indx]]
         for word in words:
