@@ -9,7 +9,6 @@ import spacy
 from spacy.tokens import Doc
 from spacy.attrs import ID, ORTH, SHAPE, PREFIX, SUFFIX
 from thinc.extra.datasets import imdb
-from thinc.loss import categorical_crossentropy
 from spacy._ml import link_vectors_to_models
 from thinc.neural.util import to_categorical, minibatch
 from thinc.neural._classes.encoder_categorizer import Categorizer
