@@ -49,7 +49,7 @@ def random_mask(X0, nlp, indx2word, vocab, mL):
 def spacy_tokenize(X_tokenizer, X, mL=50):
     X_out = []
     for x in X:
-        xdoc = X_tokenizer(x.strip())
+        xdoc = X_tokenizer('<cls> ' + x.strip())
         if len(xdoc) < mL:
             X_out.append(xdoc)
     return X_out
@@ -63,7 +63,7 @@ def set_rank(vocab, docs, force_include=("<oov>", "<eos>", "<bos>",
     # set oov rank
     oov_rank = 1
     vocab["<oov>"].rank = oov_rank
-    vocab.lex_attr_getters[iD] = lambda word: oov_rank
+    vocab.lex_attr_getters[ID] = lambda word: oov_rank
 
     # set all words to oov
     for lex in vocab:
@@ -166,6 +166,7 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
     train_X = spacy_tokenize(nlp.tokenizer, train_X, mL=mL)
     dev_X = spacy_tokenize(nlp.tokenizer, dev_X, mL=mL)
     test_X = spacy_tokenize(nlp.tokenizer, test_X, mL=mL)
+    print('Tokenization finished')
 
     ''' Set rank based on all the docs '''
     all_docs = train_X + dev_X + test_X
@@ -174,7 +175,7 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
     train_X = set_numeric_ids(nlp.vocab, train_X)
     dev_X = set_numeric_ids(nlp.vocab, dev_X)
     test_X = set_numeric_ids(nlp.vocab, test_X)
-    print('Tokenization and numeric ids done')
+    print('Numeric ids set')
 
     word2indx, indx2word = get_dicts(nlp.vocab)
     print('Vocab dictionaries grabbed')
