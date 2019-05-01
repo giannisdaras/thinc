@@ -26,7 +26,7 @@ numpy.random.seed(0)
 
 
 def random_mask(X0, nlp, indx2word, vocab, mL):
-    nC = Model.ops.xp.max([len(x) for x in X0])
+    nC = max([len(x) for x in X0])
     indices = \
         [Model.ops.xp.random.randint(0, len(x), nC) for x in X0]
     docs = []
