@@ -8,14 +8,11 @@ from collections import Counter
 import spacy
 from spacy.tokens import Doc
 from spacy.attrs import ID, ORTH, SHAPE, PREFIX, SUFFIX
-from thinc.loss import categorical_crossentropy
 from thinc.neural.util import to_categorical, minibatch
 from thinc.neural._classes.encoder_decoder import EncoderDecoder
 from thinc.neural._classes.softmax import Softmax
-from thinc.i2v import HashEmbed
-from thinc.v2v import Maxout
 from thinc.misc import FeatureExtracter
-from thinc.api import wrap, chain, with_flatten, layerize, concatenate, with_reshape
+from thinc.api import wrap, chain, with_flatten, with_reshape
 from attention_is_all_you_need import get_dicts, pad_sequences, \
     PositionEncode, docs2ids, FancyEmbed
 from bert_textcat import create_model_input, get_mask
@@ -28,57 +25,65 @@ random.seed(0)
 numpy.random.seed(0)
 
 
-def random_mask(X0, nlp, indx2word, mL):
-    words = [x.text.split(' ') for x in X0]
+def random_mask(X0, nlp, indx2word, vocab, mL):
     # nC: number of changed tokens
-    nC = [int(0.15 * len(x)) for x in words]
-    indices = [Model.ops.xp.random.randint(0, len(x), c) for x, c in zip(words, nC)]
+    nC = [int(0.15 * len(x)) for x in X0]
+    indices = \
+        [Model.ops.xp.random.randint(0, len(x), c) for x, c in zip(X0, nC)]
+    docs = []
     for sent_indx in range(len(X0)):
-        for indx in indices[sent_indx]:
+        words = [w.text for w in X0[sent_indx]]
+        for word in words:
             dice = int(Model.ops.xp.random.randint(1, 11, 1))
             if dice <= 8:
-                words[indx] = '<mask>'
+                word = '<mask>'
             elif dice == 9:
                 vocab_indx = \
                     int(Model.ops.xp.random.randint(0, len(nlp.vocab), 1))
                 random_word = indx2word[vocab_indx]
-                words[indx] = random_word
-    words = [' '.join(x) for x in words]
-    X1 = spacy_tokenize(nlp.tokenizer, words, mL=mL, special_token=False)
-    return X1, indices
+                word = random_word
+        docs.append(Doc(vocab, words=[w.text for w in doc]))
+    return docs, indices
 
 
-def spacy_tokenize(X_tokenizer, X, special_token=True, mL=50):
+def spacy_tokenize(X_tokenizer, X, mL=50):
     X_out = []
     for x in X:
-        if special_token:
-            xdoc = X_tokenizer('<cls> ' + x.strip())
-        else:
-            xdoc = X_tokenizer(x.strip())
+        xdoc = X_tokenizer(x.strip())
         if len(xdoc) < mL:
             X_out.append(xdoc)
     return X_out
 
 
-def set_numeric_ids(vocab, docs, force_include=("<oov>", "<eos>", "<bos>",
-                    "<cls>", "<mask>"), nTGT=5000):
-    """Count word frequencies and use them to set the lex.rank attribute."""
+def set_rank(vocab, docs, force_include=("<oov>", "<eos>", "<bos>",
+             "<cls>", "<mask>"), nTGT=5000):
+    ''' A function to prepare vocab ids '''
     freqs = Counter()
+
+    # set oov rank
     oov_rank = 1
     vocab["<oov>"].rank = oov_rank
-    vocab.lex_attr_getters[ID] = lambda word: oov_rank
-    rank = 2
+    vocab.lex_attr_getters[iD] = lambda word: oov_rank
+
+    # set all words to oov
     for lex in vocab:
         lex.rank = oov_rank
+    rank = 2
+
+    # set ids for the special tokens
+    for word in force_include:
+        lex = vocab[word]
+        lex.rank = rank
+        rank += 1
+
+    # count frequencies of orth
     for doc in docs:
         assert doc.vocab is vocab
         for token in doc:
             lex = vocab[token.orth]
             freqs[lex.orth] += 1
-    for word in force_include:
-        lex = vocab[word]
-        lex.rank = rank
-        rank += 1
+
+    # update the ids of the most commont nTGT words
     for orth, count in freqs.most_common():
         lex = vocab[orth]
         if lex.text not in force_include:
@@ -86,6 +91,9 @@ def set_numeric_ids(vocab, docs, force_include=("<oov>", "<eos>", "<bos>",
             rank += 1
         if nTGT != 0 and rank >= nTGT:
             break
+
+
+def set_numeric_ids(vocab, docs):
     output_docs = []
     for doc in docs:
         output_docs.append(Doc(vocab, words=[w.text for w in doc]))
@@ -154,16 +162,23 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
     dev = dev[:lim]
     test = test[:lim]
 
+    ''' Tokenize '''
     train_X = spacy_tokenize(nlp.tokenizer, train_X, mL=mL)
     dev_X = spacy_tokenize(nlp.tokenizer, dev_X, mL=mL)
     test_X = spacy_tokenize(nlp.tokenizer, test_X, mL=mL)
 
-    train_X = set_numeric_ids(nlp.vocab, train_X, nTGT=nTGT)
-    dev_X = set_numeric_ids(nlp.vocab, dev_X, nTGT=nTGT)
-    test_X = set_numeric_ids(nlp.vocab, test_X, nTGT=nTGT)
+    ''' Set rank based on all the docs '''
+    all_docs = train_X + dev_X + test_X
+    set_rank(nlp.vocab, all_docs, nTGT=nTGT)
+
+    train_X = set_numeric_ids(nlp.vocab, train_X)
+    dev_X = set_numeric_ids(nlp.vocab, dev_X)
+    test_X = set_numeric_ids(nlp.vocab, test_X)
     print('Tokenization and numeric ids done')
+
     word2indx, indx2word = get_dicts(nlp.vocab)
-    print('Ready for forward pass')
+    print('Vocab dictionaries grabbed')
+
     with Model.define_operators({">>": chain}):
         embed_cols = [ORTH, SHAPE, PREFIX, SUFFIX]
         extractor = FeatureExtracter(attrs=embed_cols)
@@ -214,7 +229,7 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
             optimizer.L2 = 1e-6
             optimizer.max_grad_norm = 1.0
             for X0, _ in trainer.iterate(train_X, train_X):
-                X1, indices = random_mask(X0, nlp, indx2word, mL)
+                X1, indices = random_mask(X0, nlp, indx2word, nlp.vocab, mL)
                 Xh, backprop = model.begin_update(X1)
                 dXh, C, total = get_loss(Xh, X0, indices)
                 backprop(dXh, sgd=optimizer)
