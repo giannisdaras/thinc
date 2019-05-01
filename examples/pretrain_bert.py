@@ -234,7 +234,7 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
             >> Residual(position_encode)
             >> create_model_input()
             >> Encoder(nM=nM, nS=nS, nH=nH, device=device)
-            >> with_reshape(Softmax())
+            >> with_reshape(Softmax(nO=nTGT, nI=nM))
         )
         ''' Progress tracking '''
         losses = [0.]
