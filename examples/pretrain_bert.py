@@ -21,8 +21,6 @@ from thinc.v2v import Model
 from thinc.neural._classes.encoder_decoder import Encoder
 from thinc.extra.datasets import get_iwslt
 
-random.seed(0)
-numpy.random.seed(0)
 
 
 def random_mask(X0, nlp, indx2word, vocab, mL):
@@ -108,17 +106,18 @@ def get_loss(Xh, X_docs, indices):
     X, _ = pad_sequences(Model.ops, X)
 
     ''' Loss calculation '''
-    selected_h = Model.ops.xp.take(Xh.argmax(axis=-1), indices)
-    selected = Model.ops.xp.take(X.argmax(axis=-1), indices)
-
-    is_accurate = (selected_h == selected)
-    is_not_accurate = (selected_h != selected)
-
     dXh = Model.ops.xp.zeros(Xh.shape)
-    for i in indices:
-        dXh[i] = selected_h[i] - selected[i]
+    accurate_sum = 0
+    inaccurate_sum = 0
+    for i in range(Xh.shape[0]):
+        for indx in indices[i]:
+            dXh[i, indx, :] = Xh[i, indx, :] - X[i, indx, :]
+            if Xh[i, indx, :].argmax(axis=-1) ==  X[i, indx, :].argmax(axis=-1):
+                accurate_sum += 1
+            else:
+                inaccurate_sum += 1
 
-    return dXh, is_accurate.sum(), is_accurate.sum() + is_not_accurate.sum()
+    return dXh, accurate_sum, accurate_sum + inaccurate_sum
 
 
 @plac.annotations(
@@ -202,7 +201,7 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
             correct = 0.
             total = 0.
             for X0 in minibatch(dev, size=1024):
-                X1, indices = random_mask(X0, nlp, indx2word, mL)
+                X1, indices = random_mask(X0, nlp, indx2word, nlp.vocab, mL)
                 Xh = model(X1)
                 L, C, total = get_loss(Xh, X0, indices)
                 correct += C
