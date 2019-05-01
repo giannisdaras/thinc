@@ -139,10 +139,12 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
 
     ''' Read dataset '''
     nlp = spacy.load('en_core_web_sm')
+    print('English model loaded')
     for control_token in ("<eos>", "<bos>", "<pad>", "<cls>", "<mask>"):
         nlp.tokenizer.add_special_case(control_token, [{ORTH: control_token}])
 
     train, dev, test = get_iwslt()
+    print('Dataset loaded')
 
     train_X, _ = zip(*train)
     dev_X, _ = zip(*dev)
@@ -161,7 +163,7 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
     test_X = set_numeric_ids(nlp.vocab, test_X, nTGT=nTGT)
 
     word2indx, indx2word = get_dicts(nlp.vocab)
-
+    print('Ready for forward pass')
     with Model.define_operators({">>": chain}):
         embed_cols = [ORTH, SHAPE, PREFIX, SUFFIX]
         extractor = FeatureExtracter(attrs=embed_cols)
