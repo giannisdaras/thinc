@@ -161,7 +161,7 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
     train_X = set_numeric_ids(nlp.vocab, train_X, nTGT=nTGT)
     dev_X = set_numeric_ids(nlp.vocab, dev_X, nTGT=nTGT)
     test_X = set_numeric_ids(nlp.vocab, test_X, nTGT=nTGT)
-
+    print('Tokenization and numeric ids done')
     word2indx, indx2word = get_dicts(nlp.vocab)
     print('Ready for forward pass')
     with Model.define_operators({">>": chain}):
