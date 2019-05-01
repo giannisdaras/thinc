@@ -116,7 +116,7 @@ def get_loss(Xh, X_docs, indices):
 
     dXh = Model.ops.xp.zeros(Xh.shape)
     for i in indices:
-        dXh[i] = Xh.argmax(axis=-1)[i] - X.argmax(axis=-1)[i]
+        dXh[i] = selected_h[i] - selected[i]
 
     return dXh, is_accurate.sum(), is_accurate.sum() + is_not_accurate.sum()
 
