@@ -42,7 +42,7 @@ def random_mask(X0, nlp, indx2word, vocab, mL):
                     int(Model.ops.xp.random.randint(0, len(nlp.vocab), 1))
                 random_word = indx2word[vocab_indx]
                 word = random_word
-        docs.append(Doc(vocab, words=[w.text for w in doc]))
+        docs.append(Doc(vocab, words=words))
     return docs, indices
 
 
