@@ -108,7 +108,7 @@ def get_loss(Xh, X_docs, indices):
     X, _ = pad_sequences(Model.ops, X)
 
     ''' Loss calculation '''
-    import pdb; pdb.set_trace()
+    import ipdb; ipdb.set_trace()
     dXh = Model.ops.xp.zeros(Xh.shape)
     return dXh, is_accurate.sum(), is_accurate.sum() + is_not_accurate.sum()
 
