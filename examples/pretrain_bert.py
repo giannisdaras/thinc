@@ -35,11 +35,13 @@ def random_mask(X0, nlp, indx2word, mL):
     indices = [Model.ops.xp.random.randint(0, len(x), c) for x, c in zip(words, nC)]
     for sent_indx in range(len(X0)):
         for indx in indices[sent_indx]:
-            dice = Model.ops.xp.random.randint(1, 11, 1)
+            dice = int(Model.ops.xp.random.randint(1, 11, 1))
             if dice <= 8:
                 words[indx] = '<mask>'
             elif dice == 9:
-                random_word = indx2word[Model.ops.xp.random.randint(0, len(nlp.vocab), 1)]
+                vocab_indx = \
+                    int(Model.ops.xp.random.randint(0, len(nlp.vocab), 1))
+                random_word = indx2word[vocab_indx]
                 word[indx] = random_word
     words = [' '.join(x) for x in words]
     X1 = spacy_tokenize(nlp.tokenizer, words, mL=mL, special_token=False)
