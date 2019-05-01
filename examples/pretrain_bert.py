@@ -108,17 +108,16 @@ def get_loss(Xh, X_docs, indices):
     X, _ = pad_sequences(Model.ops, X)
 
     ''' Loss calculation '''
-    selected_h = Model.ops.xp.take(Xh.argmax(axis=-1), indices)
-    selected = Model.ops.xp.take(X.argmax(axis=-1), indices)
+    selected_h = Model.ops.xp.take(Xh, indices)
+    selected = Model.ops.xp.take(X, indices)
 
-    is_accurate = (selected_h == selected)
-    is_not_accurate = (selected_h != selected)
+    is_accurate = (selected_h.argmax(axis=-1) == selected.argmax(axis=-1))
+    is_not_accurate = (selected_h.argmax(axis=-1) != selected.argmax(axis=-1))
 
     dXh = Model.ops.xp.zeros(Xh.shape)
-    for i in indices:
-        import pdb; pdb.set_trace()
-        dXh[i] = selected_h[i] - selected[i]
-
+    dXh_sliced = Model.ops.xp.take(dXh, indices)
+    dXh_sliced = selected_h - selected
+    import pdb; pdb.set_trace()
     return dXh, is_accurate.sum(), is_accurate.sum() + is_not_accurate.sum()
 
 
