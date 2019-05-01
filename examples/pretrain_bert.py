@@ -16,6 +16,9 @@ from thinc.i2v import HashEmbed
 from thinc.v2v import Maxout
 from thinc.misc import FeatureExtracter
 from thinc.api import wrap, chain, with_flatten, layerize, concatenate, with_reshape
+from attention_is_all_you_need import get_dicts, pad_sequences, \
+    PositionEncode, docs2ids, FancyEmbed
+from bert_textcat import create_model_input, get_mask
 from thinc.misc import Residual
 from thinc.v2v import Model
 from thinc.neural._classes.encoder_decoder import Encoder
@@ -23,27 +26,6 @@ from thinc.extra.datasets import get_iwslt
 
 random.seed(0)
 numpy.random.seed(0)
-
-
-def get_mask(X, nX):
-    nB = X.shape[0]
-    nL = X.shape[1]
-    X_mask = Model.ops.allocate((nB, nL, nL))
-    for i, length in enumerate(nX):
-        X_mask[i, :, :length] = 1.0
-    return X_mask
-
-
-def get_dicts(vocab):
-    '''
-        Returns word2indx, indx2word
-    '''
-    word2indx = defaultdict(lambda: vocab['<oov'].rank)
-    indx2word = defaultdict(lambda: '<oov>')
-    for lex in vocab:
-        word2indx[lex.text] = lex.rank
-        indx2word[lex.rank] = lex.text
-    return word2indx, indx2word
 
 
 def random_mask(X0, nlp, indx2word, mL):
@@ -71,17 +53,6 @@ def spacy_tokenize(X_tokenizer, X, mL=50):
         if len(xdoc) < mL:
             X_out.append(xdoc)
     return X_out
-
-
-def PositionEncode(mL, nM):
-    positions = Model.ops.position_encode(mL, nM)
-
-    def position_encode_forward(Xs, drop=0.):
-        output = []
-        for x in Xs:
-            output.append(positions[:x.shape[0]])
-        return output, None
-    return layerize(position_encode_forward)
 
 
 def set_numeric_ids(vocab, docs, force_include=("<oov>", "<eos>", "<bos>",
@@ -116,44 +87,6 @@ def set_numeric_ids(vocab, docs, force_include=("<oov>", "<eos>", "<bos>",
         for token in output_docs[-1]:
             assert token.rank != 0, (token.text, token.vocab[token.text].rank)
     return output_docs
-
-
-def create_model_input():
-    def create_model_input_forward(Xs, drop=0.):
-        nX = model.ops.asarray([x.shape[0] for x in Xs], dtype='i')
-        nL = nX.max()
-        Xs, unpad_dXs = pad_sequences(model.ops, Xs, pad_to=nL)
-        X_mask = get_mask(Xs, nX)
-
-        def create_model_input_backward(dXs, sgd=None):
-            dXs = unpad_dXs(dXs)
-            return dXs
-
-        return (Xs.astype("float32"), X_mask), create_model_input_backward
-    model = layerize(create_model_input_forward)
-    return model
-
-
-def FancyEmbed(width, rows, cols=(ORTH, SHAPE, PREFIX, SUFFIX)):
-    from thinc.i2v import HashEmbed
-    from thinc.v2v import Maxout
-    from thinc.api import chain, concatenate
-    tables = [HashEmbed(width, rows, column=i) for i in range(len(cols))]
-    return chain(concatenate(*tables), Maxout(width, width*len(tables), pieces=3))
-
-
-@layerize
-def docs2ids(docs, drop=0.):
-    """Extract ids from a batch of doc objects"""
-    ops = Model.ops
-    ids = []
-    for doc in docs:
-        if "ids" not in doc.user_data:
-            doc.user_data["ids"] = ops.asarray(doc.to_array(ID), dtype='int32')
-        ids.append(doc.user_data["ids"])
-        if not (ids[-1] != 0).all():
-            raise ValueError(ids[-1])
-    return ids, None
 
 
 def get_loss(ops, Xh, X_docs, indices):
