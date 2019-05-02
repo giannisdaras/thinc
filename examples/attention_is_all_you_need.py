@@ -106,24 +106,35 @@ def apply_layers(*layers):
     return wrap(apply_layers_forward, *layers)
 
 
-def set_numeric_ids(vocab, docs, nTGT=0, force_include=("<oov>", "<eos>", "<bos>")):
-    """Count word frequencies and use them to set the lex.rank attribute."""
+def set_rank(vocab, docs, force_include=("<oov>", "<eos>", "<bos>",
+             "<cls>", "<mask>"), nTGT=5000):
+    ''' A function to prepare vocab ids '''
     freqs = Counter()
+
+    # set oov rank
     oov_rank = 1
     vocab["<oov>"].rank = oov_rank
     vocab.lex_attr_getters[ID] = lambda word: oov_rank
-    rank = 2
+
+    # set all words to oov
     for lex in vocab:
         lex.rank = oov_rank
+    rank = 2
+
+    # set ids for the special tokens
+    for word in force_include:
+        lex = vocab[word]
+        lex.rank = rank
+        rank += 1
+
+    # count frequencies of orth
     for doc in docs:
         assert doc.vocab is vocab
         for token in doc:
             lex = vocab[token.orth]
             freqs[lex.orth] += 1
-    for word in force_include:
-        lex = vocab[word]
-        lex.rank = rank
-        rank += 1
+
+    # update the ids of the most commont nTGT words
     for orth, count in freqs.most_common():
         lex = vocab[orth]
         if lex.text not in force_include:
@@ -131,12 +142,16 @@ def set_numeric_ids(vocab, docs, nTGT=0, force_include=("<oov>", "<eos>", "<bos>
             rank += 1
         if nTGT != 0 and rank >= nTGT:
             break
+
+
+def set_numeric_ids(vocab, docs):
     output_docs = []
     for doc in docs:
         output_docs.append(Doc(vocab, words=[w.text for w in doc]))
         for token in output_docs[-1]:
             assert token.rank != 0, (token.text, token.vocab[token.text].rank)
     return output_docs
+
 
 
 def get_dicts(vocab):
@@ -311,6 +326,10 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
                                   dev_X[:dev_lim], dev_Y[:dev_lim], mL)
     test_X, test_Y = spacy_tokenize(nlp_en.tokenizer, nlp_de.tokenizer,
                                     test_X[:test_lim], test_Y[:test_lim], mL)
+    all_X_docs = train_X + dev_X + test_X
+    all_y_docs = train_Y + dev_Y + test_Y
+    set_rank(nlp_en.vocab, all_X_docs, nTGT=nTGT)
+    set_rank(nlp_de.vocab, all_y_docs, nTGT=nTGT)
     train_X = set_numeric_ids(nlp_en.vocab, train_X, nTGT=nTGT)
     dev_X = set_numeric_ids(nlp_en.vocab, dev_X, nTGT=nTGT)
     test_X = set_numeric_ids(nlp_en.vocab, test_X, nTGT=nTGT)
