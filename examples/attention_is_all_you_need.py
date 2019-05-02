@@ -330,12 +330,12 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
     all_y_docs = train_Y + dev_Y + test_Y
     set_rank(nlp_en.vocab, all_X_docs, nTGT=nTGT)
     set_rank(nlp_de.vocab, all_y_docs, nTGT=nTGT)
-    train_X = set_numeric_ids(nlp_en.vocab, train_X, nTGT=nTGT)
-    dev_X = set_numeric_ids(nlp_en.vocab, dev_X, nTGT=nTGT)
-    test_X = set_numeric_ids(nlp_en.vocab, test_X, nTGT=nTGT)
-    train_Y = set_numeric_ids(nlp_de.vocab, train_Y, nTGT=nTGT)
-    dev_Y = set_numeric_ids(nlp_de.vocab, dev_Y, nTGT=nTGT)
-    test_Y = set_numeric_ids(nlp_de.vocab, test_Y, nTGT=nTGT)
+    train_X = set_numeric_ids(nlp_en.vocab, train_X)
+    dev_X = set_numeric_ids(nlp_en.vocab, dev_X)
+    test_X = set_numeric_ids(nlp_en.vocab, test_X)
+    train_Y = set_numeric_ids(nlp_de.vocab, train_Y)
+    dev_Y = set_numeric_ids(nlp_de.vocab, dev_Y)
+    test_Y = set_numeric_ids(nlp_de.vocab, test_Y)
 
     en_word2indx, en_indx2word = get_dicts(nlp_en.vocab)
     de_word2indx, de_indx2word = get_dicts(nlp_de.vocab)
