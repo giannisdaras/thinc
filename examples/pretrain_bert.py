@@ -109,6 +109,7 @@ def get_loss(Xh, X_docs, indices):
     X, _ = pad_sequences(Model.ops, X)
 
     ''' Loss calculation '''
+    indices = Model.ops.xp.vstack(indices)
     dXh = Model.ops.xp.zeros(Xh.shape)
     accurate_sum = 0
     inaccurate_sum = 0
