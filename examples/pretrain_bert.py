@@ -14,13 +14,12 @@ from thinc.neural._classes.softmax import Softmax
 from thinc.misc import FeatureExtracter
 from thinc.api import wrap, chain, with_flatten, with_reshape
 from attention_is_all_you_need import get_dicts, pad_sequences, \
-    PositionEncode, docs2ids, FancyEmbed
+    PositionEncode, docs2ids, FancyEmbed, set_rank, set_numeric_ids
 from bert_textcat import create_model_input, get_mask
 from thinc.misc import Residual
 from thinc.v2v import Model
 from thinc.neural._classes.encoder_decoder import Encoder
 from thinc.extra.datasets import get_iwslt
-
 
 
 def random_mask(X0, nlp, indx2word, vocab, mL):
@@ -53,53 +52,6 @@ def spacy_tokenize(X_tokenizer, X, mL=50):
         if len(xdoc) < mL:
             X_out.append(xdoc)
     return X_out
-
-
-def set_rank(vocab, docs, force_include=("<oov>", "<eos>", "<bos>",
-             "<cls>", "<mask>"), nTGT=5000):
-    ''' A function to prepare vocab ids '''
-    freqs = Counter()
-
-    # set oov rank
-    oov_rank = 1
-    vocab["<oov>"].rank = oov_rank
-    vocab.lex_attr_getters[ID] = lambda word: oov_rank
-
-    # set all words to oov
-    for lex in vocab:
-        lex.rank = oov_rank
-    rank = 2
-
-    # set ids for the special tokens
-    for word in force_include:
-        lex = vocab[word]
-        lex.rank = rank
-        rank += 1
-
-    # count frequencies of orth
-    for doc in docs:
-        assert doc.vocab is vocab
-        for token in doc:
-            lex = vocab[token.orth]
-            freqs[lex.orth] += 1
-
-    # update the ids of the most commont nTGT words
-    for orth, count in freqs.most_common():
-        lex = vocab[orth]
-        if lex.text not in force_include:
-            lex.rank = rank
-            rank += 1
-        if nTGT != 0 and rank >= nTGT:
-            break
-
-
-def set_numeric_ids(vocab, docs):
-    output_docs = []
-    for doc in docs:
-        output_docs.append(Doc(vocab, words=[w.text for w in doc]))
-        for token in output_docs[-1]:
-            assert token.rank != 0, (token.text, token.vocab[token.text].rank)
-    return output_docs
 
 
 def get_loss(Xh, X_docs, indices):
