@@ -23,26 +23,34 @@ from thinc.extra.datasets import get_iwslt
 
 
 def random_mask(X0, nlp, indx2word, vocab, mL):
-    nC = int(0.15 * max([len(x) for x in X0]))
+    nB = len(X0)
+    nL = max([len(x) for x in X0])
+    nC = int(0.15 * nL)
+    # produce masked tokens indices
     indices = \
         [Model.ops.xp.random.randint(0, len(x), nC) for x in X0]
+    loss_mask = Model.ops.xp.zeros((nB, nL))
     docs = []
-    for sent_indx in range(len(X0)):
+    for sent_indx in range(nB):
         words = [w.text for w in X0[sent_indx]]
         new_words = []
         for i, word in enumerate(words):
             dice = int(Model.ops.xp.random.randint(1, 11, 1))
-            if i not in indices[sent_indx] or (dice == 10):
+            if i not in indices[sent_indx]:
                 new_words.append(word)
-            elif dice <= 8:
-                new_words.append('<mask>')
             else:
-                vocab_indx = \
-                    int(Model.ops.xp.random.randint(0, len(nlp.vocab), 1))
-                random_word = indx2word[vocab_indx]
-                new_words.append(random_word)
+                loss_mask[sent_indx, i] = 1.0
+                if dice == 10:
+                    new_words.append(word)
+                elif dice <= 8:
+                    new_words.append('<mask>')
+                else:
+                    vocab_indx = \
+                        int(Model.ops.xp.random.randint(0, len(nlp.vocab), 1))
+                    random_word = indx2word[vocab_indx]
+                    new_words.append(random_word)
         docs.append(Doc(vocab, words=new_words))
-    return docs, indices
+    return docs, loss_mask
 
 
 def spacy_tokenize(X_tokenizer, X, mL=50):
@@ -54,26 +62,20 @@ def spacy_tokenize(X_tokenizer, X, mL=50):
     return X_out
 
 
-def get_loss(Xh, X_docs, indices):
-    X_ids = docs2ids(X_docs)
+def get_loss(Xh, original_docs, masked_docs, loss_mask):
+    X_ids = docs2ids(original_docs)
     nb_classes = Xh.shape[-1]
     X = [to_categorical(y, nb_classes=nb_classes) for y in X_ids]
     X, _ = pad_sequences(Model.ops, X)
 
     ''' Loss calculation '''
-    indices = Model.ops.xp.vstack(indices)
-    dXh = Model.ops.xp.zeros(Xh.shape)
-    accurate_sum = 0
-    inaccurate_sum = 0
-    for i in range(Xh.shape[0]):
-        for indx in indices[i]:
-            dXh[i, indx, :] = Xh[i, indx, :] - X[i, indx, :]
-            if Xh[i, indx, :].argmax(axis=-1) ==  X[i, indx, :].argmax(axis=-1):
-                accurate_sum += 1
-            else:
-                inaccurate_sum += 1
-
-    return dXh, accurate_sum, accurate_sum + inaccurate_sum
+    dXh = Xh - X
+    dXh = dXh * Model.ops.xp.expand_dims(loss_mask, axis=2)
+    accurate = Xh.argmax(axis=-1) == X.argmax(axis=-1)
+    inaccurate = Xh.argmax(axis=-1) != X.argmax(axis=-1)
+    accurate = accurate * loss_mask
+    inaccurate = inaccurate * loss_mask
+    return dXh, accurate.sum(), accurate.sum() + inaccurate.sum()
 
 
 @plac.annotations(
@@ -157,9 +159,9 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
             correct = 0.
             total = 0.
             for X0 in minibatch(dev, size=1024):
-                X1, indices = random_mask(X0, nlp, indx2word, nlp.vocab, mL)
+                X1, loss_mask = random_mask(X0, nlp, indx2word, nlp.vocab, mL)
                 Xh = model(X1)
-                L, C, total = get_loss(Xh, X0, indices)
+                L, C, total = get_loss(Xh, X0, X1, loss_mask)
                 correct += C
                 dev_loss[-1] += (L**2).sum()
             dev_accuracies[-1] = correct / total
@@ -184,9 +186,9 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
             optimizer.L2 = 1e-6
             optimizer.max_grad_norm = 1.0
             for X0, _ in trainer.iterate(train, train):
-                X1, indices = random_mask(X0, nlp, indx2word, nlp.vocab, mL)
+                X1, loss_mask = random_mask(X0, nlp, indx2word, nlp.vocab, mL)
                 Xh, backprop = model.begin_update(X1)
-                dXh, C, total = get_loss(Xh, X0, indices)
+                dXh, C, total = get_loss(Xh, X0, X1, loss_mask)
                 backprop(dXh, sgd=optimizer)
                 losses[-1] += (dXh**2).sum()
                 train_accuracies[-1] += C
