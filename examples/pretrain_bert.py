@@ -100,7 +100,7 @@ def get_loss(Xh, original_docs, masked_docs, loss_mask):
     save=("Save model to disk", "option", "save", bool),
     save_name=("Name of file saved to disk. Save option must be enabled")
 )
-def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
+def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=1e6,
          nM=300, mL=100, save=False, nTGT=5000, save_name="model.pkl"):
     if use_gpu != -1:
         spacy.require_gpu()
