@@ -14,7 +14,7 @@ class PositionwiseFeedForward(Model):
         self.layers_ = [self.ffd1, self.ffd2]
         self.nO = nO
 
-    def begin_update(self, X0, drop=0.0):
+    def begin_update(self, X0, drop=0.1):
         X1, b_X1 = self.ffd1.begin_update(X0)
         ''' Use dropout only in activation '''
         X2, b_X2 = self.relu.begin_update(X1, drop=drop)

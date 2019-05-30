@@ -42,7 +42,7 @@ class EncoderDecoder(Model):
         self.proj = with_reshape(Softmax(nO=nTGT, nI=nM))
         self._layers = [self.enc, self.dec, self.proj]
 
-    def begin_update(self, inputs, drop=0.0):
+    def begin_update(self, inputs, drop=0.1):
         '''
         A batch object flows through the network. It contains input, output and
         corresponding masks. Input changes while the object travels through
@@ -85,9 +85,9 @@ class Encoder(Model):
         self.stack = clone(EncoderLayer(nM=nM, nH=nH, device=device), nS)
         self.norm = PyTorchWrapper(PytorchLayerNorm(nM=nM, device=device))
 
-    def begin_update(self, input, drop=0.0):
+    def begin_update(self, input, drop=0.1):
         X0, mask = input
-        (X1, _), b_X1 = self.stack.begin_update((X0, mask), drop=0.0)
+        (X1, _), b_X1 = self.stack.begin_update((X0, mask), drop=0.1)
         X2, b_X2 = self.norm.begin_update(X1)
 
         def finish_update(dX2, sgd=None):
@@ -106,7 +106,7 @@ class EncoderLayer(Model):
         self.nM = nM
         self.layers_ = [self.attn, self.ffd, self.norm]
 
-    def begin_update(self, input, drop=0.0):
+    def begin_update(self, input, drop=0.1):
         X0, mask = input
         X1, b_X1 = self.attn.begin_update((X0, mask, None))
         X2, b_X2 = self.norm.begin_update(X1)
@@ -140,7 +140,7 @@ class DecoderLayer(Model):
         self.ffd = PositionwiseFeedForward(nM, 4 * nM)
         self.layers_ = [self.norm, self.y_attn, self.x_attn, self.ffd]
 
-    def begin_update(self, input, drop=0.0):
+    def begin_update(self, input, drop=0.1):
         Y0, X0, X_mask, Y_mask = input
         Y1, b_Y1 = self.y_attn.begin_update((Y0, Y_mask, None))
         Y2, b_Y2 = self.norm.begin_update(Y1)
