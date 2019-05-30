@@ -165,15 +165,16 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
         def track_progress():
             correct = 0.
             total = 0.
-            for X0 in minibatch(dev, size=1024):
+            ''' Get dev stats '''
+            for X0 in minibatch(dev, size=nB):
                 X1, loss_mask = random_mask(X0, nlp, indx2word, nlp.vocab, mL)
                 Xh = model(X1)
-                L, C, total = get_loss(Xh, X0, X1, loss_mask)
+                L, C, t = get_loss(Xh, X0, X1, loss_mask)
                 correct += C
+                total += t
                 dev_loss[-1] += (L**2).sum()
             dev_accuracies[-1] = correct / total
-            n_train = train_totals[-1]
-            print(len(losses), losses[-1], train_accuracies[-1]/n_train,
+            print(len(losses), losses[-1], train_accuracies[-1] / train_totals[-1],
                   dev_loss[-1], dev_accuracies[-1])
             dev_loss.append(0.)
             losses.append(0.)
@@ -202,9 +203,6 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
                 train_totals[-1] += total
         if save:
             model.to_disk(save_name)
-
-
-
 
 
 if __name__ == '__main__':
