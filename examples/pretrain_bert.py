@@ -161,7 +161,6 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=1000000,
         train_totals = [0.]
         dev_accuracies = [0.]
         dev_loss = [0.]
-        epoch_ind = 0
 
         def track_progress():
             correct = 0.
@@ -182,9 +181,8 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=1000000,
             train_accuracies.append(0.)
             dev_accuracies.append(0.)
             train_totals.append(0.)
-            epoch_ind += 1
             if save:
-                model.to_disk('.models/' + epoch_ind + save_name)
+                model.to_disk('.models/' + save_name)
 
         ''' Model training '''
         with model.begin_training(batch_size=nB, nb_epoch=nE) as (trainer, optimizer):
@@ -205,8 +203,6 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=1000000,
                 losses[-1] += (dXh**2).sum()
                 train_accuracies[-1] += C
                 train_totals[-1] += total
-        if save:
-            model.to_disk('.models/' + save_name)
 
 
 if __name__ == '__main__':
