@@ -149,7 +149,7 @@ def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
         position_encode = PositionEncode(mL, nM)
         model = (
             FeatureExtracter(attrs=embed_cols)
-            >> with_flatten(FancyEmbed(nM, 5000, cols=embed_cols))
+            >> with_flatten(FancyEmbed(nM, nTGT, cols=embed_cols))
             >> Residual(position_encode)
             >> create_model_input()
             >> Encoder(nM=nM, nS=nS, nH=nH, device=device)
