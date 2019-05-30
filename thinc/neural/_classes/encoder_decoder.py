@@ -101,7 +101,7 @@ class EncoderLayer(Model):
     def __init__(self, nM=300, nH=6, device='cpu'):
         Model.__init__(self)
         self.attn = MultiHeadedAttention(nM=nM, nH=nH)
-        self.ffd = PositionwiseFeedForward(nM, nM)
+        self.ffd = PositionwiseFeedForward(nM, 4 * nM)
         self.norm = PyTorchWrapper(PytorchLayerNorm(nM, device=device))
         self.nM = nM
         self.layers_ = [self.attn, self.ffd, self.norm]
@@ -137,7 +137,7 @@ class DecoderLayer(Model):
         self.y_attn = MultiHeadedAttention(nM=nM, nH=nH)
         self.x_attn = MultiHeadedAttention(nM=nM, nH=nH)
         self.norm = PyTorchWrapper(PytorchLayerNorm(nM, device=device))
-        self.ffd = PositionwiseFeedForward(nM, nM)
+        self.ffd = PositionwiseFeedForward(nM, 4 * nM)
         self.layers_ = [self.norm, self.y_attn, self.x_attn, self.ffd]
 
     def begin_update(self, input, drop=0.0):
