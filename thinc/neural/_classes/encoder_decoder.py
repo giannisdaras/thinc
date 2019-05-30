@@ -50,8 +50,8 @@ class EncoderDecoder(Model):
         Input: nB x nL x nM
         '''
         X0, Xmask, Y0, Ymask = inputs
-        X1, backprop_encode = self.enc.begin_update((X0, Xmask))
-        (Y1, _, _, _), backprop_decode = self.dec.begin_update((Y0, X1, Xmask, Ymask))
+        X1, backprop_encode = self.enc.begin_update((X0, Xmask), drop=drop)
+        (Y1, _, _, _), backprop_decode = self.dec.begin_update((Y0, X1, Xmask, Ymask), drop=drop)
         Y2, b_Y2 = self.norm.begin_update(Y1)
         word_probs, backprop_output = self.proj.begin_update(Y2, drop=drop)
 
@@ -108,11 +108,11 @@ class EncoderLayer(Model):
 
     def begin_update(self, input, drop=0.1):
         X0, mask = input
-        X1, b_X1 = self.attn.begin_update((X0, mask, None))
+        X1, b_X1 = self.attn.begin_update((X0, mask, None), drop=drop)
         X2, b_X2 = self.norm.begin_update(X1)
         X3 = X0 + X2
 
-        X4, b_X4 = self.ffd.begin_update(X3)
+        X4, b_X4 = self.ffd.begin_update(X3, drop=drop)
         X5, b_X5 = self.norm.begin_update(X4)
         X6 = X3 + X5
 
@@ -142,13 +142,13 @@ class DecoderLayer(Model):
 
     def begin_update(self, input, drop=0.1):
         Y0, X0, X_mask, Y_mask = input
-        Y1, b_Y1 = self.y_attn.begin_update((Y0, Y_mask, None))
+        Y1, b_Y1 = self.y_attn.begin_update((Y0, Y_mask, None), drop=drop)
         Y2, b_Y2 = self.norm.begin_update(Y1)
         Y3 = Y0 + Y2
-        Y4, b_Y4 = self.x_attn.begin_update((Y3, X0, X_mask, None, None))
+        Y4, b_Y4 = self.x_attn.begin_update((Y3, X0, X_mask, None, None), drop=drop)
         Y5, b_Y5 = self.norm.begin_update(Y4)
         Y6 = Y3 + Y5
-        Y7, b_Y7 = self.ffd.begin_update(Y6)
+        Y7, b_Y7 = self.ffd.begin_update(Y6, drop=drop)
 
         def finish_update(dI, sgd=None):
             dY7, dX = dI
