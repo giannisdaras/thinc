@@ -100,7 +100,7 @@ def get_loss(Xh, original_docs, masked_docs, loss_mask):
     save=("Save model to disk", "option", "save", bool),
     save_name=("Name of file saved to disk. Save option must be enabled")
 )
-def main(nH=6, dropout=0.0, nS=6, nB=64, nE=20, use_gpu=-1, lim=1000000,
+def main(nH=6, dropout=0.1, nS=6, nB=64, nE=20, use_gpu=-1, lim=1000000,
          nM=300, mL=100, save=False, nTGT=5000, save_name="model.pkl"):
     if use_gpu != -1:
         spacy.require_gpu()
@@ -197,7 +197,7 @@ def main(nH=6, dropout=0.0, nS=6, nB=64, nE=20, use_gpu=-1, lim=1000000,
             optimizer.max_grad_norm = 1.0
             for X0, _ in trainer.iterate(train, train):
                 X1, loss_mask = random_mask(X0, nlp, indx2word, nlp.vocab, mL)
-                Xh, backprop = model.begin_update(X1)
+                Xh, backprop = model.begin_update(X1, drop=dropout)
                 dXh, C, total = get_loss(Xh, X0, X1, loss_mask)
                 backprop(dXh, sgd=optimizer)
                 losses[-1] += (dXh**2).sum()
