@@ -29,6 +29,7 @@ def random_mask(X0, nlp, indx2word, vocab, mL):
     # produce masked tokens indices
     indices = \
         [Model.ops.xp.random.randint(0, len(x), nC) for x in X0]
+    ''' We need to compute loss only for the masked tokens '''
     loss_mask = Model.ops.xp.zeros((nB, nL))
     docs = []
     for sent_indx in range(nB):
@@ -45,6 +46,7 @@ def random_mask(X0, nlp, indx2word, vocab, mL):
                 elif dice <= 8:
                     new_words.append('<mask>')
                 else:
+                    ''' Choose a random word from the vocabulary '''
                     vocab_indx = \
                         int(Model.ops.xp.random.randint(0, len(nlp.vocab), 1))
                     random_word = indx2word[vocab_indx]
@@ -63,18 +65,24 @@ def spacy_tokenize(X_tokenizer, X, mL=50):
 
 
 def get_loss(Xh, original_docs, masked_docs, loss_mask):
+    ''' Calculate loss '''
+
+    ''' Convert original docs to (nB, nL, nTGT) with one hot encoding '''
     X_ids = docs2ids(original_docs)
     nb_classes = Xh.shape[-1]
     X = [to_categorical(y, nb_classes=nb_classes) for y in X_ids]
     X, _ = pad_sequences(Model.ops, X)
 
-    ''' Loss calculation '''
+    ''' Loss calculation only on the masked positions '''
     dXh = Xh - X
     dXh = dXh * Model.ops.xp.expand_dims(loss_mask, axis=2)
+
+    ''' Calculate number of accurate, inaccurate tokens '''
     accurate = Xh.argmax(axis=-1) == X.argmax(axis=-1)
     inaccurate = Xh.argmax(axis=-1) != X.argmax(axis=-1)
     accurate = accurate * loss_mask
     inaccurate = inaccurate * loss_mask
+
     return dXh, accurate.sum(), accurate.sum() + inaccurate.sum()
 
 
@@ -95,7 +103,6 @@ def get_loss(Xh, original_docs, masked_docs, loss_mask):
 def main(nH=6, dropout=0.0, nS=6, nB=32, nE=20, use_gpu=-1, lim=2000,
          nM=300, mL=100, save=False, nTGT=5000, save_name="model.pkl"):
     if use_gpu != -1:
-        # TODO: Make specific to different devices, e.g. 1 vs 0
         spacy.require_gpu()
         device = 'cuda'
     else:
