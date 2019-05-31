@@ -59,9 +59,9 @@ class SparseAttention(Model):
         k1 = k0.reshape(nB, -1, self.nH, self.nD).transpose(0, 2, 1, 3)
         v0, get_dy0_2 = self.get_values.begin_update(y0)
         v1 = v0.reshape(nB, -1, self.nH, self.nD).transpose(0, 2, 1, 3)
-        q2, get_dq1_dk1_dv1 = self.attn(q1, k1, v1, mask=mask, sentX=sentX,
+        q2, get_dq1_dk1_dv1 = self.attn(q1, k1, v1, mask=mask & self.mask_floor(nB, nL), sentX=sentX,
                                         sentY=sentY, self_attn=self_attention)
-        x1, get_dq2_dk1_dv1 = self.attn(q1, k1, v1, mask=mask, sentX=sentX,
+        x1, get_dq2_dk1_dv1 = self.attn(q1, k1, v1, mask=mask & self.mask_repetitive(nB, nL), sentX=sentX,
                                         sentY=sentY, self_attn=self_attention)
 
         x2 = x1.transpose(0, 2, 1, 3).reshape((nB, nL, nH*nD))
@@ -134,19 +134,6 @@ class SparseAttention(Model):
             dQ0 = dQ1.reshape((nB, nH, nL, nD))
             return dQ0, dK0
         return S1, backprop_attn1
-
-    # def _mask(self, S0, mask):
-    #     S1 = S0.transpose(1, 0, 2, 3)
-    #     S2 = S1 - (1 - mask) * (1e9)
-    #     S3 = S2.transpose(1, 0, 2, 3)
-    #
-    #     def backprop_attn2(dS3):
-    #         dS2 = dS3.transpose(1, 0, 2, 3)
-    #         dS1 = dS2
-    #         dS0 = dS1.transpose(1, 0, 2, 3)
-    #         return dS0
-    #
-    #     return S3, backprop_attn2
 
     def _apply_attn(self, S0, V0):
         ''' Multiplication with values '''
